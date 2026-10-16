@@ -52,6 +52,34 @@ class CopilotCreditsTests(unittest.TestCase):
         self.assertEqual(result["periods"]["daily"], {local_day.isoformat(): 1.25})
         self.assertEqual(result["periods"]["monthly"], {local_day.strftime("%Y-%m"): 1.25})
 
+    def test_session_counts_use_creation_date_and_count_each_file_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            sessions = Path(directory) / "chatSessions"
+            sessions.mkdir()
+            (sessions / "session-one.jsonl").write_text(
+                "\n".join(
+                    json.dumps(record)
+                    for record in (
+                        {"kind": 0, "v": {"creationDate": "2026-10-12T08:00:00"}},
+                        {"kind": 2, "v": [{"timestamp": "2026-10-12T09:00:00", "copilotCredits": 1.5}]},
+                        {"kind": 2, "v": [{"timestamp": "2026-10-13T09:00:00", "copilotCredits": 2}]},
+                    )
+                ),
+                encoding="utf-8",
+            )
+            (sessions / "session-two.jsonl").write_text(
+                json.dumps({"kind": 0, "v": {"creationDate": "2026-10-13T10:00:00"}}),
+                encoding="utf-8",
+            )
+
+            result = copilot_credits.analyze_paths([sessions])
+
+        self.assertEqual(result["session_periods"]["daily"], {"2026-10-12": 1, "2026-10-13": 1})
+        self.assertEqual(result["session_periods"]["weekly"], {"2026-W42": 2})
+        self.assertEqual(result["periods"]["weekly"], {"2026-W42": 3.5})
+        self.assertIn("每周", copilot_credits.format_table(result))
+        self.assertIn("2 个会话", copilot_credits.format_table(result))
+
     def test_copilot_auto_is_attributed_to_gpt6_luna(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "events.jsonl"
@@ -235,8 +263,9 @@ class CopilotCreditsTests(unittest.TestCase):
         self.assertIn('id="chart-tooltip"', html)
         self.assertIn("svg.onpointermove", html)
         self.assertIn("getScreenCTM", html)
-        self.assertNotIn("每周", html)
-        self.assertNotIn("本周", html)
+        self.assertIn('data-period="weekly"', html)
+        self.assertIn('"session_periods"', html)
+        self.assertIn("#ff3d8e", html)
         self.assertIn('"current_usage"', html)
         self.assertIn('"model_periods"', html)
         self.assertNotIn(unsafe_model, html)

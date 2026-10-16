@@ -150,6 +150,30 @@ def _credit_values(record: dict[str, Any]) -> Iterator[tuple[str, Decimal | None
                 yield str(key), None
 
 
+def _session_creation_timestamp(value: Any) -> datetime | None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if _normalize_key(key) == "creationdate":
+                parsed = parse_timestamp(child)
+                if parsed is not None:
+                    return parsed
+        for child in value.values():
+            parsed = _session_creation_timestamp(child)
+            if parsed is not None:
+                return parsed
+    elif isinstance(value, list):
+        for child in value:
+            parsed = _session_creation_timestamp(child)
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _week_key(day: date) -> str:
+    iso = day.isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
+
+
 def _walk_records(
     value: Any,
     inherited_timestamp: datetime | None = None,
@@ -239,10 +263,17 @@ def analyze_paths(paths: Iterable[Path]) -> dict[str, Any]:
     files = _files_from_paths(paths)
     totals: dict[str, dict[str, Decimal]] = {
         "daily": defaultdict(Decimal),
+        "weekly": defaultdict(Decimal),
         "monthly": defaultdict(Decimal),
+    }
+    session_periods: dict[str, dict[str, int]] = {
+        "daily": defaultdict(int),
+        "weekly": defaultdict(int),
+        "monthly": defaultdict(int),
     }
     model_periods: dict[str, dict[str, dict[str, Decimal]]] = {
         "daily": defaultdict(lambda: defaultdict(Decimal)),
+        "weekly": defaultdict(lambda: defaultdict(Decimal)),
         "monthly": defaultdict(lambda: defaultdict(Decimal)),
     }
     field_names: set[str] = set()
@@ -256,6 +287,15 @@ def analyze_paths(paths: Iterable[Path]) -> dict[str, Any]:
     for path in files:
         documents, malformed = _load_file(path)
         malformed_count += malformed
+        session_created = next(
+            (created for document in documents if (created := _session_creation_timestamp(document))),
+            None,
+        )
+        if session_created is not None:
+            session_day = session_created.date()
+            session_periods["daily"][session_day.isoformat()] += 1
+            session_periods["weekly"][_week_key(session_day)] += 1
+            session_periods["monthly"][session_day.strftime("%Y-%m")] += 1
         for document in documents:
             for record, timestamp, model in _walk_records(document):
                 for field_name, amount in _credit_values(record):
@@ -272,8 +312,10 @@ def analyze_paths(paths: Iterable[Path]) -> dict[str, Any]:
                         continue
                     day = timestamp.date()
                     totals["daily"][day.isoformat()] += amount
+                    totals["weekly"][_week_key(day)] += amount
                     totals["monthly"][day.strftime("%Y-%m")] += amount
                     model_periods["daily"][day.isoformat()][model_name] += amount
+                    model_periods["weekly"][_week_key(day)][model_name] += amount
                     model_periods["monthly"][day.strftime("%Y-%m")][model_name] += amount
 
     has_fields = field_count > 0
@@ -304,6 +346,10 @@ def analyze_paths(paths: Iterable[Path]) -> dict[str, Any]:
             period: {key: _json_number(value) for key, value in sorted(groups.items())}
             for period, groups in totals.items()
         },
+        "session_periods": {
+            period: dict(sorted(groups.items()))
+            for period, groups in session_periods.items()
+        },
         "model_periods": {
             period: {
                 key: {model: _json_number(amount) for model, amount in sorted(models.items())}
@@ -333,22 +379,33 @@ def _current_usage(result: dict[str, Any], generated_at: datetime) -> dict[str, 
 
 def format_table(result: dict[str, Any]) -> str:
     lines = [result["message"]]
+    labels = (("daily", "每日"), ("weekly", "每周"), ("monthly", "每月"))
     if result["status"] == "no_credit_fields":
         lines.append(f"扫描文件: {result['files_scanned']}  |  坏记录: {result['malformed_records']}")
-        return "\n".join(lines)
-    if result["credit_fields"]:
-        lines.append("Credits 字段: " + ", ".join(result["credit_fields"]))
+    else:
+        if result["credit_fields"]:
+            lines.append("Credits 字段: " + ", ".join(result["credit_fields"]))
+        lines.append("")
+        lines.append(f"{'周期':<8} {'日期/周/月':<12} Credits")
+        lines.append("-" * 34)
+        rows = 0
+        for period, label in labels:
+            for bucket, amount in result["periods"][period].items():
+                lines.append(f"{label:<8} {bucket:<12} {amount}")
+                rows += 1
+        if rows == 0:
+            lines.append("没有带有效时间的 Credits 记录。")
     lines.append("")
-    lines.append(f"{'周期':<8} {'日期/周/月':<12} Credits")
-    lines.append("-" * 34)
-    labels = (("daily", "每日"), ("monthly", "每月"))
-    rows = 0
+    lines.append("会话数:")
+    session_rows = 0
     for period, label in labels:
-        for bucket, amount in result["periods"][period].items():
-            lines.append(f"{label:<8} {bucket:<12} {amount}")
-            rows += 1
-    if rows == 0:
-        lines.append("没有带有效时间的 Credits 记录。")
+        for bucket, count in result["session_periods"][period].items():
+            lines.append(f"{label:<8} {bucket:<12} {count} 个会话")
+            session_rows += 1
+    if session_rows == 0:
+        lines.append("没有带创建时间的会话记录。")
+    if result["status"] == "no_credit_fields":
+        return "\n".join(lines)
     if result["undated_records"]:
         lines.append(
             f"未分组（缺少时间）: {result['undated_credits']} Credits"
@@ -382,24 +439,24 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
     <style>
         :root {
             color-scheme: light;
-            --canvas: #f1f6f2;
-            --paper: #fbfcf8;
-            --ink: #183630;
-            --muted: #61736e;
-            --line: #d5e0d9;
-            --green: #257466;
-            --green-light: #d8eee5;
+            --canvas: #fff6fa;
+            --paper: #fffdfa;
+            --ink: #33242d;
+            --muted: #756570;
+            --line: #ead9e1;
+            --accent: #ff3d8e;
+            --accent-light: #ffe1ed;
             --coral: #e47758;
             --yellow: #e4c45e;
             --blue: #568ba3;
-            --shadow: 0 12px 32px rgba(25, 65, 53, .07);
+            --shadow: 0 12px 32px rgba(82, 37, 58, .07);
         }
         * { box-sizing: border-box; }
         body {
             margin: 0;
-            background: linear-gradient(145deg, #edf4ef, #f7f8f1 70%);
+            background: linear-gradient(145deg, #fff2f7, #f8f6f5 70%);
             color: var(--ink);
-            font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+            font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
             font-size: 14px;
         }
         button, select { font: inherit; }
@@ -408,56 +465,56 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
             display: flex; align-items: flex-start; justify-content: space-between; gap: 24px;
             padding: 4px 0 24px; border-bottom: 1px solid var(--line);
         }
-        .eyebrow { margin: 0 0 8px; color: var(--green); font-size: 11px; font-weight: 700; text-transform: uppercase; }
-        h1 { margin: 0; font: 500 36px/1.08 Georgia, "Times New Roman", serif; }
+        .eyebrow { margin: 0 0 8px; color: var(--accent); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+        h1 { margin: 0; font-size: 36px; line-height: 1.1; font-weight: 600; }
         .subtitle { margin: 10px 0 0; color: var(--muted); }
         .stamp { color: var(--muted); font-size: 12px; text-align: right; white-space: nowrap; }
         .status { margin: 18px 0 22px; color: var(--muted); font-size: 13px; }
         .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 20px 0; }
-        .segmented { display: inline-flex; padding: 4px; background: #e3ece6; border-radius: 7px; }
+        .segmented { display: inline-flex; padding: 4px; background: var(--accent-light); border-radius: 7px; }
         .segmented button {
             min-width: 62px; border: 0; border-radius: 5px; padding: 8px 13px;
             background: transparent; color: var(--muted); cursor: pointer;
         }
-        .segmented button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 2px 7px rgba(20, 50, 40, .1); }
+        .segmented button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 2px 7px rgba(55, 35, 45, .1); }
         .filter { display: flex; align-items: center; gap: 10px; color: var(--muted); }
         select { min-width: 190px; padding: 9px 32px 9px 11px; border: 1px solid var(--line); border-radius: 5px; color: var(--ink); background: var(--paper); }
         .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0 0 20px; }
         .metric { min-height: 112px; padding: 17px 18px; border: 1px solid var(--line); border-radius: 6px; background: rgba(251, 252, 248, .8); }
         .metric-label { color: var(--muted); font-size: 12px; }
-        .metric-value { margin-top: 13px; font: 500 25px/1 Georgia, "Times New Roman", serif; overflow-wrap: anywhere; }
+        .metric-value { margin-top: 13px; font-size: 25px; line-height: 1; font-weight: 500; overflow-wrap: anywhere; }
         .metric-note { margin-top: 7px; color: var(--muted); font-size: 11px; }
         .selection-summary { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 4px 0 24px; color: var(--muted); font-size: 12px; }
         .selection-summary strong { color: var(--ink); font-variant-numeric: tabular-nums; }
         .section-head { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin: 30px 0 12px; }
-        h2 { margin: 0; font: 500 22px/1.2 Georgia, "Times New Roman", serif; }
+        h2 { margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600; }
         .section-note { margin: 0; color: var(--muted); font-size: 12px; }
         .chart-panel { position: relative; padding: 18px 18px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); box-shadow: var(--shadow); }
         #trend-chart { display: block; width: 100%; height: 270px; overflow: visible; }
-        .chart-grid { stroke: #e5ece7; stroke-width: 1; }
-        .chart-label { fill: #71827d; font: 11px "Trebuchet MS", "Segoe UI", sans-serif; }
-        .chart-hover-band { fill: #257466; opacity: .08; pointer-events: none; }
+        .chart-grid { stroke: #efe5ea; stroke-width: 1; }
+        .chart-label { fill: #756570; font: 11px "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; }
+        .chart-hover-band { fill: var(--accent); opacity: .08; pointer-events: none; }
         .chart-bar { cursor: pointer; transition: opacity .16s ease, y .16s ease; }
         .chart-bar:hover, .chart-bar:focus { opacity: .74; outline: none; }
-        .chart-tooltip { position: absolute; z-index: 2; min-width: 176px; max-width: 260px; padding: 10px 12px; border: 1px solid #315b51; border-radius: 5px; color: #f7fbf8; background: #183630; box-shadow: 0 8px 22px rgba(24, 54, 48, .22); pointer-events: none; font-size: 12px; }
+        .chart-tooltip { position: absolute; z-index: 2; min-width: 176px; max-width: 260px; padding: 10px 12px; border: 1px solid #c51b62; border-radius: 5px; color: #fff8fb; background: #4a2636; box-shadow: 0 8px 22px rgba(82, 37, 58, .22); pointer-events: none; font-size: 12px; }
         .chart-tooltip[hidden] { display: none; }
-        .tooltip-date { color: #c8e2d4; }
+        .tooltip-date { color: #ffd0e2; }
         .tooltip-value { margin: 5px 0; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
-        .tooltip-model { color: #d5e2db; line-height: 1.5; overflow-wrap: anywhere; }
+        .tooltip-model { color: #f3dce6; line-height: 1.5; overflow-wrap: anywhere; }
         .empty { padding: 32px 16px; color: var(--muted); text-align: center; }
         .content-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr); gap: 26px; margin-top: 6px; }
         .table-wrap { overflow-x: auto; border-top: 1px solid var(--line); }
         table { width: 100%; border-collapse: collapse; text-align: left; }
         th { padding: 11px 10px; color: var(--muted); font-size: 11px; font-weight: 600; }
-        td { padding: 11px 10px; border-top: 1px solid #e5ece7; }
+        td { padding: 11px 10px; border-top: 1px solid #efe5ea; }
         tbody tr[data-bucket] { cursor: pointer; }
-        tbody tr[data-bucket]:hover, tbody tr.selected { background: #eaf3ed; }
+        tbody tr[data-bucket]:hover, tbody tr.selected { background: #fff0f6; }
         td.amount, th.amount { text-align: right; font-variant-numeric: tabular-nums; }
         .model-name { max-width: 260px; overflow-wrap: anywhere; }
         .model-value { min-width: 150px; }
-        .bar-track { height: 6px; margin-top: 7px; overflow: hidden; border-radius: 4px; background: #e8eeea; }
-        .bar-fill { height: 100%; border-radius: inherit; background: var(--green); }
-        .clear-selection { padding: 5px 9px; border: 1px solid var(--line); border-radius: 4px; color: var(--green); background: transparent; cursor: pointer; }
+        .bar-track { height: 6px; margin-top: 7px; overflow: hidden; border-radius: 4px; background: #f0e8ec; }
+        .bar-fill { height: 100%; border-radius: inherit; background: var(--accent); }
+        .clear-selection { padding: 5px 9px; border: 1px solid var(--line); border-radius: 4px; color: #c51b62; background: transparent; cursor: pointer; }
         .footer { margin-top: 34px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
         @media (max-width: 760px) {
             .shell { padding: 24px 17px 40px; }
@@ -495,6 +552,7 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
         <section class="toolbar" aria-label="统计筛选">
             <div class="segmented" id="period-control" role="group" aria-label="统计周期">
                 <button type="button" data-period="daily" aria-pressed="true">每日</button>
+                <button type="button" data-period="weekly" aria-pressed="false">每周</button>
                 <button type="button" data-period="monthly" aria-pressed="false">每月</button>
             </div>
             <label class="filter">模型筛选
@@ -503,6 +561,7 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
         </section>
         <div class="selection-summary" aria-live="polite">
             <span><span id="total-label">当前区间</span> <strong id="total-value">0</strong> Credits</span>
+            <span>当前区间会话 <strong id="session-count">0</strong></span>
             <span>峰值 <strong id="peak-value">-</strong> <span id="peak-note">Credits</span></span>
             <span>模型 <strong id="model-count">0</strong></span>
             <span>未分组 <strong id="undated-value">0</strong> Credits</span>
@@ -514,7 +573,7 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
         <div class="content-grid">
             <section>
                 <div class="section-head"><h2>周期明细</h2><button class="clear-selection" id="clear-selection" type="button" hidden>显示全部周期</button></div>
-                <div class="table-wrap"><table><thead><tr><th>周期</th><th class="amount">Credits</th></tr></thead><tbody id="period-rows"></tbody></table><div class="empty" id="period-empty" hidden>暂无周期记录。</div></div>
+                <div class="table-wrap"><table><thead><tr><th>周期</th><th class="amount">Credits</th><th class="amount">会话数</th></tr></thead><tbody id="period-rows"></tbody></table><div class="empty" id="period-empty" hidden>暂无周期记录。</div></div>
             </section>
             <section>
                 <div class="section-head"><h2>模型用量</h2><p class="section-note" id="model-scope"></p></div>
@@ -526,13 +585,16 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
     <script type="application/json" id="report-data">__REPORT_DATA__</script>
     <script>
         const data = JSON.parse(document.getElementById("report-data").textContent);
-        const labels = { daily: "每日", monthly: "每月" };
-        const colors = ["#257466", "#e47758", "#568ba3", "#b69a3b", "#6d8e64", "#c06b7b"];
+        const labels = { daily: "每日", weekly: "每周", monthly: "每月" };
+        const colors = ["#ff3d8e", "#e47758", "#568ba3", "#b69a3b", "#6d8e64", "#c06b7b"];
         const state = { period: "daily", model: "*", bucket: null };
         const byId = (id) => document.getElementById(id);
         const number = (value) => new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 6 }).format(value || 0);
         const sum = (values) => Object.values(values || {}).reduce((total, value) => total + value, 0);
-        const bucketNames = () => Object.keys(data.periods[state.period] || {}).sort();
+        const bucketNames = () => [...new Set([
+            ...Object.keys(data.periods[state.period] || {}),
+            ...Object.keys(data.session_periods?.[state.period] || {})
+        ])].sort();
         const modelNames = () => {
             const names = new Set(Object.keys(data.undated_by_model || {}));
             for (const buckets of Object.values(data.model_periods[state.period] || {})) {
@@ -603,8 +665,9 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
                 tooltip.replaceChildren();
                 const dateLine = document.createElement("div"); dateLine.className = "tooltip-date"; dateLine.textContent = row.bucket;
                 const valueLine = document.createElement("div"); valueLine.className = "tooltip-value"; valueLine.textContent = `${number(row.value)} Credits`;
+                const sessionLine = document.createElement("div"); sessionLine.className = "tooltip-model"; sessionLine.textContent = `${number(data.session_periods?.[state.period]?.[row.bucket] || 0)} 个会话`;
                 const modelLine = document.createElement("div"); modelLine.className = "tooltip-model"; modelLine.textContent = modelDetails || "模型未标注";
-                tooltip.append(dateLine, valueLine, modelLine);
+                tooltip.append(dateLine, valueLine, sessionLine, modelLine);
                 tooltip.hidden = false;
                 const panelRect = panel.getBoundingClientRect();
                 const anchorRect = anchor ? anchor.getBoundingClientRect() : svg.getBoundingClientRect();
@@ -640,11 +703,11 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
                 const y = top + plotHeight - barHeight;
                 const bar = make("rect", {
                     x, y, width: barWidth, height: Math.max(1, barHeight), rx: 2,
-                    fill: state.bucket === row.bucket ? "#e47758" : "#257466",
+                    fill: state.bucket === row.bucket ? "#c51b62" : "#ff3d8e",
                     class: "chart-bar", tabindex: 0, role: "button",
-                    "aria-label": `${row.bucket}: ${number(row.value)} Credits`
+                    "aria-label": `${row.bucket}: ${number(row.value)} Credits, ${number(data.session_periods?.[state.period]?.[row.bucket] || 0)} 个会话`
                 });
-                bar.append(make("title", {}, `${row.bucket} · ${number(row.value)} Credits`));
+                bar.append(make("title", {}, `${row.bucket} · ${number(row.value)} Credits · ${number(data.session_periods?.[state.period]?.[row.bucket] || 0)} 个会话`));
                 const activate = () => { state.bucket = state.bucket === row.bucket ? null : row.bucket; render(); };
                 bar.addEventListener("focus", (event) => showTooltip(event, row, bar));
                 bar.addEventListener("blur", () => { byId("chart-tooltip").hidden = true; });
@@ -678,7 +741,9 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
                 row.setAttribute("aria-label", `${bucket}: ${number(selectedAmount(bucket))} Credits`);
                 const period = document.createElement("td"); period.textContent = bucket;
                 const amount = document.createElement("td"); amount.className = "amount"; amount.textContent = number(selectedAmount(bucket));
-                row.append(period, amount);
+                const sessions = document.createElement("td"); sessions.className = "amount";
+                sessions.textContent = number(data.session_periods?.[state.period]?.[bucket] || 0);
+                row.append(period, amount, sessions);
                 const activate = () => { state.bucket = state.bucket === bucket ? null : bucket; render(); };
                 row.addEventListener("click", activate);
                 row.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(); } });
@@ -706,6 +771,7 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
         function renderMetrics() {
             const buckets = bucketNames();
             const total = buckets.reduce((amount, bucket) => amount + selectedAmount(bucket), 0);
+            const sessionTotal = buckets.reduce((count, bucket) => count + (data.session_periods?.[state.period]?.[bucket] || 0), 0);
             const peak = buckets.map((bucket) => ({ bucket, value: selectedAmount(bucket) })).sort((a, b) => b.value - a.value)[0];
             const current = data.current_usage;
             byId("today-label").textContent = `今日用量 · ${current.today.label}`;
@@ -714,6 +780,7 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
             byId("month-value").textContent = number(current.month.value);
             byId("total-value").textContent = number(total);
             byId("total-label").textContent = state.model === "*" ? `${labels[state.period]}区间用量` : "筛选模型用量";
+            byId("session-count").textContent = number(sessionTotal);
             byId("peak-value").textContent = peak?.value ? peak.bucket : "-";
             byId("peak-note").textContent = peak?.value ? `${number(peak.value)} Credits` : "Credits";
             byId("model-count").textContent = modelNames().length;
