@@ -1,2 +1,3 @@
 tests/**
 *.pyc
+.copilot_credits_cache/

@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import webbrowser
 from collections import defaultdict
 from datetime import date, datetime, timezone
@@ -55,6 +56,8 @@ MODEL_ALIASES = {
     "auto": "GPT-6 Luna",
     "gpt6luna": "GPT-6 Luna",
 }
+CACHE_VERSION = 1
+CACHE_FILENAME = "index.json"
 
 
 def _normalize_key(key: Any) -> str:
@@ -259,8 +262,8 @@ def discover_default_paths() -> list[Path]:
     return roots
 
 
-def analyze_paths(paths: Iterable[Path]) -> dict[str, Any]:
-    files = _files_from_paths(paths)
+def _file_contribution(path: Path) -> dict[str, Any]:
+    documents, malformed = _load_file(path)
     totals: dict[str, dict[str, Decimal]] = {
         "daily": defaultdict(Decimal),
         "weekly": defaultdict(Decimal),
@@ -282,41 +285,213 @@ def analyze_paths(paths: Iterable[Path]) -> dict[str, Any]:
     undated_total = Decimal(0)
     undated_records = 0
     undated_by_model: dict[str, Decimal] = defaultdict(Decimal)
-    malformed_count = 0
+    session_created = next(
+        (created for document in documents if (created := _session_creation_timestamp(document))),
+        None,
+    )
+    if session_created is not None:
+        session_day = session_created.date()
+        session_periods["daily"][session_day.isoformat()] += 1
+        session_periods["weekly"][_week_key(session_day)] += 1
+        session_periods["monthly"][session_day.strftime("%Y-%m")] += 1
+    for document in documents:
+        for record, timestamp, model in _walk_records(document):
+            for field_name, amount in _credit_values(record):
+                field_names.add(field_name)
+                field_count += 1
+                if amount is None:
+                    continue
+                record_count += 1
+                model_name = model or "未标注模型"
+                if timestamp is None:
+                    undated_total += amount
+                    undated_records += 1
+                    undated_by_model[model_name] += amount
+                    continue
+                day = timestamp.date()
+                totals["daily"][day.isoformat()] += amount
+                totals["weekly"][_week_key(day)] += amount
+                totals["monthly"][day.strftime("%Y-%m")] += amount
+                model_periods["daily"][day.isoformat()][model_name] += amount
+                model_periods["weekly"][_week_key(day)][model_name] += amount
+                model_periods["monthly"][day.strftime("%Y-%m")][model_name] += amount
+
+    return {
+        "malformed": malformed,
+        "field_names": sorted(field_names),
+        "field_count": field_count,
+        "record_count": record_count,
+        "undated_total": str(undated_total),
+        "undated_records": undated_records,
+        "undated_by_model": {key: str(value) for key, value in undated_by_model.items()},
+        "periods": {
+            period: {key: str(value) for key, value in groups.items()}
+            for period, groups in totals.items()
+        },
+        "session_periods": {period: dict(groups) for period, groups in session_periods.items()},
+        "model_periods": {
+            period: {
+                key: {model: str(value) for model, value in models.items()}
+                for key, models in groups.items()
+            }
+            for period, groups in model_periods.items()
+        },
+    }
+
+
+def _cache_key(path: Path) -> str:
+    return os.path.normcase(str(path.resolve()))
+
+
+def _read_cache(cache_dir: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads((cache_dir / CACHE_FILENAME).read_text(encoding="utf-8"))
+        if payload.get("version") != CACHE_VERSION or not isinstance(payload.get("files"), dict):
+            return {}
+        return payload["files"]
+    except (OSError, UnicodeError, json.JSONDecodeError, AttributeError, TypeError):
+        return {}
+
+
+def _write_cache(cache_dir: Path, entries: dict[str, Any]) -> None:
+    temporary_path: str | None = None
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=cache_dir, delete=False
+        ) as temporary_file:
+            temporary_path = temporary_file.name
+            json.dump({"version": CACHE_VERSION, "files": entries}, temporary_file)
+        os.replace(temporary_path, cache_dir / CACHE_FILENAME)
+    except (OSError, TypeError, ValueError):
+        if temporary_path is not None:
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
+
+
+def _valid_cache_entry(entry: Any, size: int, mtime_ns: int) -> bool:
+    if not (
+        isinstance(entry, dict)
+        and entry.get("size") == size
+        and entry.get("mtime_ns") == mtime_ns
+        and isinstance(entry.get("contribution"), dict)
+    ):
+        return False
+    contribution = entry["contribution"]
+    try:
+        for value in (contribution["undated_total"],):
+            if not Decimal(value).is_finite():
+                return False
+        for key in ("malformed", "field_count", "record_count", "undated_records"):
+            if not isinstance(contribution[key], int) or contribution[key] < 0:
+                return False
+        if not isinstance(contribution["field_names"], list) or not all(
+            isinstance(name, str) for name in contribution["field_names"]
+        ):
+            return False
+        for values in (contribution["undated_by_model"], *contribution["periods"].values()):
+            if not isinstance(values, dict) or any(
+                not isinstance(key, str) or not Decimal(value).is_finite()
+                for key, value in values.items()
+            ):
+                return False
+        for groups in contribution["model_periods"].values():
+            if not isinstance(groups, dict):
+                return False
+            for models in groups.values():
+                if not isinstance(models, dict) or any(
+                    not isinstance(model, str) or not Decimal(value).is_finite()
+                    for model, value in models.items()
+                ):
+                    return False
+        for groups in contribution["session_periods"].values():
+            if not isinstance(groups, dict) or any(
+                not isinstance(key, str) or not isinstance(value, int) or value < 0
+                for key, value in groups.items()
+            ):
+                return False
+    except (AttributeError, KeyError, TypeError, ValueError, InvalidOperation):
+        return False
+    return True
+
+
+def analyze_paths(paths: Iterable[Path], cache_dir: Path | None = None) -> dict[str, Any]:
+    files = _files_from_paths(paths)
+    cache_entries = _read_cache(cache_dir) if cache_dir is not None else {}
+    contributions: list[dict[str, Any]] = []
+    updated_entries = dict(cache_entries)
+    cache_hits = 0
+    files_reparsed = 0
 
     for path in files:
-        documents, malformed = _load_file(path)
-        malformed_count += malformed
-        session_created = next(
-            (created for document in documents if (created := _session_creation_timestamp(document))),
-            None,
-        )
-        if session_created is not None:
-            session_day = session_created.date()
-            session_periods["daily"][session_day.isoformat()] += 1
-            session_periods["weekly"][_week_key(session_day)] += 1
-            session_periods["monthly"][session_day.strftime("%Y-%m")] += 1
-        for document in documents:
-            for record, timestamp, model in _walk_records(document):
-                for field_name, amount in _credit_values(record):
-                    field_names.add(field_name)
-                    field_count += 1
-                    if amount is None:
-                        continue
-                    record_count += 1
-                    model_name = model or "未标注模型"
-                    if timestamp is None:
-                        undated_total += amount
-                        undated_records += 1
-                        undated_by_model[model_name] += amount
-                        continue
-                    day = timestamp.date()
-                    totals["daily"][day.isoformat()] += amount
-                    totals["weekly"][_week_key(day)] += amount
-                    totals["monthly"][day.strftime("%Y-%m")] += amount
-                    model_periods["daily"][day.isoformat()][model_name] += amount
-                    model_periods["weekly"][_week_key(day)][model_name] += amount
-                    model_periods["monthly"][day.strftime("%Y-%m")][model_name] += amount
+        key = _cache_key(path)
+        try:
+            stat = path.stat()
+            size, mtime_ns = stat.st_size, stat.st_mtime_ns
+        except OSError:
+            size = mtime_ns = -1
+        entry = cache_entries.get(key)
+        if size >= 0 and _valid_cache_entry(entry, size, mtime_ns):
+            contribution = entry["contribution"]
+            cache_hits += 1
+        else:
+            contribution = _file_contribution(path)
+            files_reparsed += 1
+            try:
+                after_stat = path.stat()
+                if size >= 0 and (after_stat.st_size, after_stat.st_mtime_ns) == (size, mtime_ns):
+                    updated_entries[key] = {
+                        "size": size,
+                        "mtime_ns": mtime_ns,
+                        "contribution": contribution,
+                    }
+            except OSError:
+                pass
+        contributions.append(contribution)
+
+    if cache_dir is not None and files_reparsed:
+        _write_cache(cache_dir, updated_entries)
+
+    totals: dict[str, dict[str, Decimal]] = {
+        "daily": defaultdict(Decimal),
+        "weekly": defaultdict(Decimal),
+        "monthly": defaultdict(Decimal),
+    }
+    session_periods: dict[str, dict[str, int]] = {
+        "daily": defaultdict(int),
+        "weekly": defaultdict(int),
+        "monthly": defaultdict(int),
+    }
+    model_periods: dict[str, dict[str, dict[str, Decimal]]] = {
+        "daily": defaultdict(lambda: defaultdict(Decimal)),
+        "weekly": defaultdict(lambda: defaultdict(Decimal)),
+        "monthly": defaultdict(lambda: defaultdict(Decimal)),
+    }
+    field_names: set[str] = set()
+    field_count = record_count = undated_records = malformed_count = 0
+    undated_total = Decimal(0)
+    undated_by_model: dict[str, Decimal] = defaultdict(Decimal)
+    for contribution in contributions:
+        malformed_count += contribution["malformed"]
+        field_names.update(contribution["field_names"])
+        field_count += contribution["field_count"]
+        record_count += contribution["record_count"]
+        undated_total += Decimal(contribution["undated_total"])
+        undated_records += contribution["undated_records"]
+        for model, amount in contribution["undated_by_model"].items():
+            undated_by_model[model] += Decimal(amount)
+        for period, groups in contribution["periods"].items():
+            for key, amount in groups.items():
+                totals[period][key] += Decimal(amount)
+        for period, groups in contribution["session_periods"].items():
+            for key, count in groups.items():
+                session_periods[period][key] += count
+        for period, groups in contribution["model_periods"].items():
+            for key, models in groups.items():
+                for model, amount in models.items():
+                    model_periods[period][key][model] += Decimal(amount)
 
     has_fields = field_count > 0
     status = "credits_found" if has_fields else "no_credit_fields"
@@ -329,7 +504,7 @@ def analyze_paths(paths: Iterable[Path]) -> dict[str, Any]:
     else:
         message = "已按日志中明确记录的 Credits 数值汇总。"
 
-    return {
+    result = {
         "status": status,
         "message": message,
         "files_scanned": len(files),
@@ -358,6 +533,10 @@ def analyze_paths(paths: Iterable[Path]) -> dict[str, Any]:
             for period, groups in model_periods.items()
         },
     }
+    if cache_dir is not None:
+        result["cache_hits"] = cache_hits
+        result["files_reparsed"] = files_reparsed
+    return result
 
 
 def _json_number(value: Decimal) -> int | float:
@@ -379,6 +558,10 @@ def _current_usage(result: dict[str, Any], generated_at: datetime) -> dict[str, 
 
 def format_table(result: dict[str, Any]) -> str:
     lines = [result["message"]]
+    if "cache_hits" in result:
+        lines.append(
+            f"缓存: 命中 {result['cache_hits']} 个，重新解析 {result['files_reparsed']} 个"
+        )
     labels = (("daily", "每日"), ("weekly", "每周"), ("monthly", "每月"))
     if result["status"] == "no_credit_fields":
         lines.append(f"扫描文件: {result['files_scanned']}  |  坏记录: {result['malformed_records']}")
@@ -841,7 +1024,8 @@ def main(argv: list[str] | None = None) -> int:
 
     custom_paths = [Path(os.path.expandvars(path)).expanduser() for path in args.path]
     paths = custom_paths if custom_paths else discover_default_paths()
-    result = analyze_paths(paths)
+    cache_dir = Path(__file__).resolve().parent / ".copilot_credits_cache"
+    result = analyze_paths(paths, cache_dir=cache_dir)
     if args.format == "json":
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:

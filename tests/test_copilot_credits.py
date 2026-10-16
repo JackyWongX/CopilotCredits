@@ -314,6 +314,106 @@ class CopilotCreditsTests(unittest.TestCase):
         self.assertTrue(report_exists)
         open_browser.assert_not_called()
 
+    def test_cache_reuses_contributions_and_matches_cold_scan(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "events.jsonl"
+            source.write_text(
+                "\n".join(
+                    (
+                        json.dumps({"timestamp": "2026-10-12", "model": "model-a", "credits": "1.25"}),
+                        json.dumps({"creationDate": "2026-10-13", "credits": 2}),
+                        "not valid json",
+                    )
+                ),
+                encoding="utf-8",
+            )
+            cache_dir = root / "cache"
+            cold = copilot_credits.analyze_paths([source])
+
+            with patch.object(copilot_credits, "_load_file", wraps=copilot_credits._load_file) as load:
+                first = copilot_credits.analyze_paths([source], cache_dir=cache_dir)
+                self.assertEqual(load.call_count, 1)
+            self.assertEqual(first["files_reparsed"], 1)
+            self.assertEqual(first["cache_hits"], 0)
+
+            with patch.object(copilot_credits, "_load_file", wraps=copilot_credits._load_file) as load:
+                second = copilot_credits.analyze_paths([source], cache_dir=cache_dir)
+                load.assert_not_called()
+            self.assertEqual(second["files_reparsed"], 0)
+            self.assertEqual(second["cache_hits"], 1)
+            for result in (first, second):
+                result.pop("cache_hits")
+                result.pop("files_reparsed")
+            self.assertEqual(first, cold)
+            self.assertEqual(second, cold)
+
+    def test_cache_reparses_changed_and_added_files_and_excludes_deleted_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sources = root / "sources"
+            sources.mkdir()
+            changed = sources / "changed.json"
+            deleted = sources / "deleted.json"
+            added = sources / "added.json"
+            changed.write_text(json.dumps({"timestamp": "2026-10-12", "credits": 1}), encoding="utf-8")
+            deleted.write_text(json.dumps({"timestamp": "2026-10-12", "credits": 2}), encoding="utf-8")
+            cache_dir = root / "cache"
+            copilot_credits.analyze_paths([sources], cache_dir=cache_dir)
+
+            changed.write_text(
+                json.dumps({"timestamp": "2026-10-12", "credits": "100.5"}), encoding="utf-8"
+            )
+            deleted.unlink()
+            added.write_text(json.dumps({"timestamp": "2026-10-12", "credits": 4}), encoding="utf-8")
+            with patch.object(copilot_credits, "_load_file", wraps=copilot_credits._load_file) as load:
+                result = copilot_credits.analyze_paths([sources], cache_dir=cache_dir)
+
+        self.assertEqual(load.call_count, 2)
+        self.assertEqual(result["files_scanned"], 2)
+        self.assertEqual(result["files_reparsed"], 2)
+        self.assertEqual(result["cache_hits"], 0)
+        self.assertEqual(result["periods"]["daily"], {"2026-10-12": 104.5})
+
+    def test_cache_keeps_entries_for_other_scan_roots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first_root = root / "first"
+            second_root = root / "second"
+            first_root.mkdir()
+            second_root.mkdir()
+            first_file = first_root / "first.json"
+            second_file = second_root / "second.json"
+            first_file.write_text(json.dumps({"credits": 1}), encoding="utf-8")
+            second_file.write_text(json.dumps({"credits": 2}), encoding="utf-8")
+            cache_dir = root / "cache"
+            copilot_credits.analyze_paths([first_root], cache_dir=cache_dir)
+            copilot_credits.analyze_paths([second_root], cache_dir=cache_dir)
+
+            with patch.object(copilot_credits, "_load_file", wraps=copilot_credits._load_file) as load:
+                result = copilot_credits.analyze_paths([first_root], cache_dir=cache_dir)
+
+        load.assert_not_called()
+        self.assertEqual(result["cache_hits"], 1)
+        self.assertEqual(result["credit_records"], 1)
+        self.assertEqual(result["undated_credits"], 1)
+
+    def test_corrupt_cache_falls_back_to_parsing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "events.json"
+            source.write_text(json.dumps({"timestamp": "2026-10-12", "credits": 3}), encoding="utf-8")
+            cache_dir = root / "cache"
+            cache_dir.mkdir()
+            (cache_dir / copilot_credits.CACHE_FILENAME).write_text("{broken", encoding="utf-8")
+
+            with patch.object(copilot_credits, "_load_file", wraps=copilot_credits._load_file) as load:
+                result = copilot_credits.analyze_paths([source], cache_dir=cache_dir)
+
+        load.assert_called_once_with(source)
+        self.assertEqual(result["files_reparsed"], 1)
+        self.assertEqual(result["periods"]["daily"], {"2026-10-12": 3})
+
 
 if __name__ == "__main__":
     unittest.main()
