@@ -29,15 +29,6 @@
         }
         button, select { font: inherit; }
         .shell { max-width: 1260px; margin: 0 auto; padding: 34px 38px 56px; }
-        .masthead {
-            display: flex; align-items: flex-start; justify-content: space-between; gap: 24px;
-            padding: 4px 0 24px; border-bottom: 1px solid var(--line);
-        }
-        .eyebrow { margin: 0 0 8px; color: var(--accent); font-size: 11px; font-weight: 700; text-transform: uppercase; }
-        h1 { margin: 0; font-size: 36px; line-height: 1.1; font-weight: 600; }
-        .subtitle { margin: 10px 0 0; color: var(--muted); }
-        .stamp { color: var(--muted); font-size: 12px; text-align: right; white-space: nowrap; }
-        .status { margin: 18px 0 22px; color: var(--muted); font-size: 13px; }
         .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 20px 0; }
         .segmented { display: inline-flex; padding: 4px; background: var(--accent-light); border-radius: 7px; }
         .segmented button {
@@ -47,28 +38,14 @@
         .segmented button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 2px 7px rgba(55, 35, 45, .1); }
         .filter { display: flex; align-items: center; gap: 10px; color: var(--muted); }
         select { min-width: 190px; padding: 9px 32px 9px 11px; border: 1px solid var(--line); border-radius: 5px; color: var(--ink); background: var(--paper); }
-        .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0 0 20px; }
-        .metric { min-height: 112px; padding: 17px 18px; border: 1px solid var(--line); border-radius: 6px; background: rgba(251, 252, 248, .8); }
-        .metric-label { color: var(--muted); font-size: 12px; }
-        .metric-value { margin-top: 13px; font-size: 25px; line-height: 1; font-weight: 500; overflow-wrap: anywhere; }
-        .metric-note { margin-top: 7px; color: var(--muted); font-size: 11px; }
+        .metrics { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0 0 20px; font-size: 25px; }
+        .metric { display: inline-flex; align-items: baseline; gap: 5px; }
+        .metric-label { color: var(--muted); font-size: 14px; }
+        .metric-value { color: var(--accent); font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
         .selection-summary { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 4px 0 24px; color: var(--muted); font-size: 12px; }
         .selection-summary strong { color: var(--ink); font-variant-numeric: tabular-nums; }
-        .section-head { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin: 30px 0 12px; }
         h2 { margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600; }
         .section-note { margin: 0; color: var(--muted); font-size: 12px; }
-        .chart-panel { position: relative; padding: 18px 18px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); box-shadow: var(--shadow); }
-        #trend-chart { display: block; width: 100%; height: 270px; overflow: visible; }
-        .chart-grid { stroke: #efe5ea; stroke-width: 1; }
-        .chart-label { fill: #756570; font: 11px "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; }
-        .chart-hover-band { fill: var(--accent); opacity: .08; pointer-events: none; }
-        .chart-bar { cursor: pointer; transition: opacity .16s ease, y .16s ease; }
-        .chart-bar:hover, .chart-bar:focus { opacity: .74; outline: none; }
-        .chart-tooltip { position: absolute; z-index: 2; min-width: 176px; max-width: 260px; padding: 10px 12px; border: 1px solid #c51b62; border-radius: 5px; color: #fff8fb; background: #4a2636; box-shadow: 0 8px 22px rgba(82, 37, 58, .22); pointer-events: none; font-size: 12px; }
-        .chart-tooltip[hidden] { display: none; }
-        .tooltip-date { color: #ffd0e2; }
-        .tooltip-value { margin: 5px 0; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
-        .tooltip-model { color: #f3dce6; line-height: 1.5; overflow-wrap: anywhere; }
         .empty { padding: 32px 16px; color: var(--muted); text-align: center; }
         .content-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr); gap: 26px; margin-top: 6px; }
         .table-wrap { overflow-x: auto; border-top: 1px solid var(--line); }
@@ -82,40 +59,24 @@
         .model-value { min-width: 150px; }
         .bar-track { height: 6px; margin-top: 7px; overflow: hidden; border-radius: 4px; background: #f0e8ec; }
         .bar-fill { height: 100%; border-radius: inherit; background: var(--accent); }
+        .period-bar-track { display: flex; justify-content: flex-end; }
         .clear-selection { padding: 5px 9px; border: 1px solid var(--line); border-radius: 4px; color: #c51b62; background: transparent; cursor: pointer; }
         .footer { margin-top: 34px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
         @media (max-width: 760px) {
             .shell { padding: 24px 17px 40px; }
-            .masthead { display: block; }
-            h1 { font-size: 31px; }
-            .stamp { margin-top: 13px; text-align: left; }
             .toolbar { align-items: flex-start; flex-direction: column; }
-            .metrics { gap: 8px; }
-            .metric { min-height: 98px; padding: 13px 10px; }
-            .metric-value { font-size: 20px; }
             .content-grid { grid-template-columns: 1fr; gap: 8px; }
-            .section-head { align-items: flex-start; flex-direction: column; }
             .filter { width: 100%; justify-content: space-between; }
             select { flex: 1; min-width: 0; }
-            #trend-chart { height: 230px; }
         }
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; } }
     </style>
 </head>
 <body>
     <main class="shell">
-        <header class="masthead">
-            <div>
-                <p class="eyebrow">GitHub Copilot / Usage report</p>
-                <h1>Copilot Credits</h1>
-                <p class="subtitle">本地会话记录中的 Credits 使用情况</p>
-            </div>
-            <div class="stamp"><div>离线报告</div><div id="generated-at"></div></div>
-        </header>
-        <p class="status" id="status"></p>
         <section class="metrics" aria-label="今日和本月用量">
-            <article class="metric"><div class="metric-label" id="today-label">今日用量</div><div class="metric-value" id="today-value">0</div><div class="metric-note">Credits</div></article>
-            <article class="metric"><div class="metric-label" id="month-label">本月用量</div><div class="metric-value" id="month-value">0</div><div class="metric-note">Credits</div></article>
+            <span class="metric"><span class="metric-label" id="today-label">今日用量</span><strong class="metric-value" id="today-value">0</strong> Credits</span>
+            <span class="metric"><span class="metric-label" id="month-label">本月用量</span><strong class="metric-value" id="month-value">0</strong> Credits</span>
         </section>
         <section class="toolbar" aria-label="统计筛选">
             <div class="segmented" id="period-control" role="group" aria-label="统计周期">
@@ -133,24 +94,19 @@
             <span>峰值 <strong id="peak-value">-</strong> <span id="peak-note">Credits</span></span>
             <span>模型 <strong id="model-count">0</strong></span>
             <span>未分组 <strong id="undated-value">0</strong> Credits</span>
+            <button class="clear-selection" id="clear-selection" type="button" hidden>显示全部周期</button>
         </div>
-        <section>
-            <div class="section-head"><h2>Credits 趋势</h2><p class="section-note" id="trend-note"></p></div>
-            <div class="chart-panel"><svg id="trend-chart" viewBox="0 0 1000 270" role="img" aria-label="Credits 用量柱状图" aria-describedby="chart-tooltip"></svg><div class="chart-tooltip" id="chart-tooltip" role="tooltip" hidden></div><div class="empty" id="chart-empty" hidden>当前筛选下没有可展示的用量。</div></div>
-        </section>
         <div class="content-grid">
             <section>
-                <div class="section-head"><h2>周期明细</h2><button class="clear-selection" id="clear-selection" type="button" hidden>显示全部周期</button></div>
                 <div class="table-wrap"><table><thead><tr><th>周期</th><th class="amount">Credits</th><th class="amount">会话数</th></tr></thead><tbody id="period-rows"></tbody></table><div class="empty" id="period-empty" hidden>暂无周期记录。</div></div>
             </section>
             <section>
-                <div class="section-head"><h2>模型用量</h2><p class="section-note" id="model-scope"></p></div>
                 <div class="table-wrap"><table><thead><tr><th>模型</th><th class="amount">Credits</th></tr></thead><tbody id="model-rows"></tbody></table><div class="empty" id="model-empty" hidden>当前周期没有模型用量。</div></div>
             </section>
         </div>
         <footer class="footer" id="footer"></footer>
     </main>
-    <script type="application/json" id="report-data">{"status":"credits_found","message":"部分 Credits 记录缺少可解析时间，已单独列出未分组用量。","files_scanned":134,"malformed_records":0,"credit_fields":["copilotCredits","credits"],"credit_field_count":63,"credit_records":63,"undated_credits":14.079582499999999,"undated_records":4,"undated_by_model":{"GPT-6 Luna":14.079582499999999},"periods":{"daily":{"2026-09-28":0.794868,"2026-09-29":0.5780959999999999,"2026-10-08":1.8692734999999998,"2026-10-10":2.748202,"2026-10-12":2.372666,"2026-10-13":0.731675,"2026-10-15":52.5943415,"2026-10-16":7.7865385},"weekly":{"2026-W40":1.3729639999999999,"2026-W41":4.6174755,"2026-W42":63.485221},"monthly":{"2026-09":1.3729639999999999,"2026-10":68.10269650000001}},"session_periods":{"daily":{"2026-08-17":1,"2026-08-19":1,"2026-08-20":1,"2026-08-26":1,"2026-08-31":1,"2026-09-03":2,"2026-09-22":2,"2026-09-23":2,"2026-09-24":4,"2026-09-28":4,"2026-09-29":2,"2026-10-08":4,"2026-10-09":3,"2026-10-10":3,"2026-10-12":4,"2026-10-13":2,"2026-10-15":5,"2026-10-16":12},"weekly":{"2026-W34":3,"2026-W35":1,"2026-W36":3,"2026-W39":8,"2026-W40":6,"2026-W41":10,"2026-W42":23},"monthly":{"2026-08":5,"2026-09":16,"2026-10":33}},"model_periods":{"daily":{"2026-09-28":{"GPT-6 Luna":0.794868},"2026-09-29":{"GPT-6 Luna":0.5780959999999999},"2026-10-08":{"GPT-6 Luna":1.8692734999999998},"2026-10-10":{"GPT-6 Luna":2.748202},"2026-10-12":{"GPT-6 Luna":2.372666},"2026-10-13":{"GPT-6 Luna":0.731675},"2026-10-15":{"GPT-6 Luna":52.5943415},"2026-10-16":{"GPT-6 Luna":7.7865385}},"weekly":{"2026-W40":{"GPT-6 Luna":1.3729639999999999},"2026-W41":{"GPT-6 Luna":4.6174755},"2026-W42":{"GPT-6 Luna":63.485221}},"monthly":{"2026-09":{"GPT-6 Luna":1.3729639999999999},"2026-10":{"GPT-6 Luna":68.10269650000001}}},"cache_hits":134,"files_reparsed":0,"generated_at":"2026-10-16T17:39:13.290862+08:00","current_usage":{"today":{"label":"2026-10-16","value":7.7865385},"month":{"label":"2026-10","value":68.10269650000001}}}</script>
+    <script type="application/json" id="report-data">{"status":"credits_found","message":"部分 Credits 记录缺少可解析时间，已单独列出未分组用量。","files_scanned":145,"malformed_records":0,"credit_fields":["copilotCredits","credits"],"credit_field_count":73,"credit_records":73,"undated_credits":15.5456705,"undated_records":5,"undated_by_model":{"GPT-6 Luna":15.5456705},"periods":{"daily":{"2026-09-28":0.794868,"2026-09-29":0.5780959999999999,"2026-10-08":1.8692734999999998,"2026-10-10":2.748202,"2026-10-12":2.372666,"2026-10-13":0.731675,"2026-10-15":52.5943415,"2026-10-16":12.7061855},"weekly":{"2026-W40":1.3729639999999999,"2026-W41":4.6174755,"2026-W42":68.40486800000001},"monthly":{"2026-09":1.3729639999999999,"2026-10":73.0223435}},"session_periods":{"daily":{"2026-08-17":1,"2026-08-19":1,"2026-08-20":1,"2026-08-26":1,"2026-08-31":1,"2026-09-03":2,"2026-09-22":2,"2026-09-23":2,"2026-09-24":4,"2026-09-28":4,"2026-09-29":2,"2026-10-08":4,"2026-10-09":3,"2026-10-10":3,"2026-10-12":4,"2026-10-13":2,"2026-10-15":5,"2026-10-16":12},"weekly":{"2026-W34":3,"2026-W35":1,"2026-W36":3,"2026-W39":8,"2026-W40":6,"2026-W41":10,"2026-W42":23},"monthly":{"2026-08":5,"2026-09":16,"2026-10":33}},"model_periods":{"daily":{"2026-09-28":{"GPT-6 Luna":0.794868},"2026-09-29":{"GPT-6 Luna":0.5780959999999999},"2026-10-08":{"GPT-6 Luna":1.8692734999999998},"2026-10-10":{"GPT-6 Luna":2.748202},"2026-10-12":{"GPT-6 Luna":2.372666},"2026-10-13":{"GPT-6 Luna":0.731675},"2026-10-15":{"GPT-6 Luna":52.5943415},"2026-10-16":{"GPT-6 Luna":12.7061855}},"weekly":{"2026-W40":{"GPT-6 Luna":1.3729639999999999},"2026-W41":{"GPT-6 Luna":4.6174755},"2026-W42":{"GPT-6 Luna":68.40486800000001}},"monthly":{"2026-09":{"GPT-6 Luna":1.3729639999999999},"2026-10":{"GPT-6 Luna":73.0223435}}},"cache_hits":145,"files_reparsed":0,"generated_at":"2026-10-16T18:14:42.261471+08:00","current_usage":{"today":{"label":"2026-10-16","value":12.7061855},"month":{"label":"2026-10","value":73.0223435}}}</script>
     <script>
         const data = JSON.parse(document.getElementById("report-data").textContent);
         const labels = { daily: "每日", weekly: "每周", monthly: "每月" };
@@ -189,104 +145,6 @@
             }
             select.value = state.model;
         }
-        function drawChart() {
-            const svg = byId("trend-chart");
-            byId("chart-tooltip").hidden = true;
-            svg.onpointermove = null;
-            svg.onpointerleave = null;
-            svg.replaceChildren();
-            const rows = bucketNames().map((bucket) => ({ bucket, value: selectedAmount(bucket) })).slice(-40);
-            byId("chart-empty").hidden = rows.length > 0;
-            svg.hidden = rows.length === 0;
-            if (!rows.length) return;
-            const ns = "http://www.w3.org/2000/svg";
-            const make = (tag, attributes, text) => {
-                const element = document.createElementNS(ns, tag);
-                for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
-                if (text !== undefined) element.textContent = text;
-                return element;
-            };
-            const width = 1000, height = 270, left = 54, right = 12, top = 14, bottom = 40;
-            const plotWidth = width - left - right, plotHeight = height - top - bottom;
-            const maximum = Math.max(...rows.map((row) => row.value), 0);
-            const scale = maximum || 1;
-            for (let index = 0; index <= 4; index++) {
-                const y = top + plotHeight * index / 4;
-                svg.append(make("line", { x1: left, y1: y, x2: width - right, y2: y, class: "chart-grid" }));
-                svg.append(make("text", { x: left - 8, y: y + 4, "text-anchor": "end", class: "chart-label" }, number(scale * (4 - index) / 4)));
-            }
-            const slot = plotWidth / rows.length;
-            const barWidth = Math.max(3, Math.min(30, slot * .62));
-            const labelStep = Math.max(1, Math.ceil(rows.length / 8));
-            const hoverBand = make("rect", {
-                x: left, y: top, width: slot, height: plotHeight,
-                class: "chart-hover-band", visibility: "hidden"
-            });
-            svg.append(hoverBand);
-            const showTooltip = (event, row, anchor) => {
-                const tooltip = byId("chart-tooltip");
-                const panel = svg.parentElement;
-                const breakdown = data.model_periods[state.period]?.[row.bucket] || {};
-                const modelDetails = state.model === "*"
-                    ? Object.entries(breakdown).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([name, amount]) => `${name} ${number(amount)}`).join(" · ")
-                    : `${state.model} ${number(row.value)}`;
-                tooltip.replaceChildren();
-                const dateLine = document.createElement("div"); dateLine.className = "tooltip-date"; dateLine.textContent = row.bucket;
-                const valueLine = document.createElement("div"); valueLine.className = "tooltip-value"; valueLine.textContent = `${number(row.value)} Credits`;
-                const sessionLine = document.createElement("div"); sessionLine.className = "tooltip-model"; sessionLine.textContent = `${number(data.session_periods?.[state.period]?.[row.bucket] || 0)} 个会话`;
-                const modelLine = document.createElement("div"); modelLine.className = "tooltip-model"; modelLine.textContent = modelDetails || "模型未标注";
-                tooltip.append(dateLine, valueLine, sessionLine, modelLine);
-                tooltip.hidden = false;
-                const panelRect = panel.getBoundingClientRect();
-                const anchorRect = anchor ? anchor.getBoundingClientRect() : svg.getBoundingClientRect();
-                const pointerX = event.clientX || anchorRect.left + anchorRect.width / 2;
-                const pointerY = event.clientY || anchorRect.top;
-                tooltip.style.left = `${Math.max(8, Math.min(pointerX - panelRect.left + 12, panel.clientWidth - tooltip.offsetWidth - 8))}px`;
-                tooltip.style.top = `${Math.max(8, Math.min(pointerY - panelRect.top - tooltip.offsetHeight - 12, panel.clientHeight - tooltip.offsetHeight - 8))}px`;
-            };
-            svg.onpointermove = (event) => {
-                const transform = svg.getScreenCTM();
-                if (!transform) return;
-                const point = svg.createSVGPoint();
-                point.x = event.clientX;
-                point.y = event.clientY;
-                const chartPoint = point.matrixTransform(transform.inverse());
-                const index = Math.floor((chartPoint.x - left) / slot);
-                if (chartPoint.y < top || chartPoint.y > height - bottom || index < 0 || index >= rows.length) {
-                    byId("chart-tooltip").hidden = true;
-                    hoverBand.setAttribute("visibility", "hidden");
-                    return;
-                }
-                hoverBand.setAttribute("x", left + index * slot);
-                hoverBand.setAttribute("visibility", "visible");
-                showTooltip(event, rows[index], null);
-            };
-            svg.onpointerleave = () => {
-                byId("chart-tooltip").hidden = true;
-                hoverBand.setAttribute("visibility", "hidden");
-            };
-            rows.forEach((row, index) => {
-                const barHeight = row.value / scale * plotHeight;
-                const x = left + index * slot + (slot - barWidth) / 2;
-                const y = top + plotHeight - barHeight;
-                const bar = make("rect", {
-                    x, y, width: barWidth, height: Math.max(1, barHeight), rx: 2,
-                    fill: state.bucket === row.bucket ? "#c51b62" : "#ff3d8e",
-                    class: "chart-bar", tabindex: 0, role: "button",
-                    "aria-label": `${row.bucket}: ${number(row.value)} Credits, ${number(data.session_periods?.[state.period]?.[row.bucket] || 0)} 个会话`
-                });
-                bar.append(make("title", {}, `${row.bucket} · ${number(row.value)} Credits · ${number(data.session_periods?.[state.period]?.[row.bucket] || 0)} 个会话`));
-                const activate = () => { state.bucket = state.bucket === row.bucket ? null : row.bucket; render(); };
-                bar.addEventListener("focus", (event) => showTooltip(event, row, bar));
-                bar.addEventListener("blur", () => { byId("chart-tooltip").hidden = true; });
-                bar.addEventListener("click", activate);
-                bar.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(); } });
-                svg.append(bar);
-                if (index % labelStep === 0 || index === rows.length - 1) {
-                    svg.append(make("text", { x: left + index * slot + slot / 2, y: height - 12, "text-anchor": "middle", class: "chart-label" }, row.bucket));
-                }
-            });
-        }
         function modelBreakdown() {
             const result = {};
             const buckets = data.model_periods[state.period] || {};
@@ -301,16 +159,27 @@
             periodRows.replaceChildren();
             const buckets = bucketNames().slice().reverse();
             byId("period-empty").hidden = buckets.length > 0;
+            const creditMaximum = Math.max(...buckets.map(selectedAmount), 0);
+            const sessionMaximum = Math.max(...buckets.map((bucket) => data.session_periods?.[state.period]?.[bucket] || 0), 0);
+            const appendBar = (cell, value, maximum) => {
+                const track = document.createElement("div"); track.className = "bar-track period-bar-track";
+                const fill = document.createElement("div"); fill.className = "bar-fill";
+                fill.style.width = `${maximum ? value / maximum * 100 : 0}%`;
+                track.append(fill); cell.append(track);
+            };
             for (const bucket of buckets) {
                 const row = document.createElement("tr");
                 row.dataset.bucket = bucket;
                 if (state.bucket === bucket) row.classList.add("selected");
                 row.tabIndex = 0;
-                row.setAttribute("aria-label", `${bucket}: ${number(selectedAmount(bucket))} Credits`);
+                const creditValue = selectedAmount(bucket);
+                const sessionValue = data.session_periods?.[state.period]?.[bucket] || 0;
+                row.setAttribute("aria-label", `${bucket}: ${number(creditValue)} Credits`);
                 const period = document.createElement("td"); period.textContent = bucket;
-                const amount = document.createElement("td"); amount.className = "amount"; amount.textContent = number(selectedAmount(bucket));
+                const amount = document.createElement("td"); amount.className = "amount";
+                amount.append(document.createTextNode(number(creditValue))); appendBar(amount, creditValue, creditMaximum);
                 const sessions = document.createElement("td"); sessions.className = "amount";
-                sessions.textContent = number(data.session_periods?.[state.period]?.[bucket] || 0);
+                sessions.append(document.createTextNode(number(sessionValue))); appendBar(sessions, sessionValue, sessionMaximum);
                 row.append(period, amount, sessions);
                 const activate = () => { state.bucket = state.bucket === bucket ? null : bucket; render(); };
                 row.addEventListener("click", activate);
@@ -322,7 +191,6 @@
             modelRows.replaceChildren();
             const entries = Object.entries(models).sort((a, b) => b[1] - a[1]);
             byId("model-empty").hidden = entries.length > 0;
-            byId("model-scope").textContent = state.bucket || "当前区间";
             const maximum = Math.max(...entries.map((entry) => entry[1]), 0);
             for (const [index, [name, amount]] of entries.entries()) {
                 const row = document.createElement("tr");
@@ -353,7 +221,6 @@
             byId("peak-note").textContent = peak?.value ? `${number(peak.value)} Credits` : "Credits";
             byId("model-count").textContent = modelNames().length;
             byId("undated-value").textContent = number(data.undated_credits);
-            byId("trend-note").textContent = `${labels[state.period]} · ${state.model === "*" ? "全部模型" : state.model}`;
             byId("clear-selection").hidden = !state.bucket;
         }
         function render() {
@@ -362,7 +229,6 @@
             }
             populateModelFilter();
             renderMetrics();
-            drawChart();
             renderTables();
         }
         document.querySelectorAll("[data-period]").forEach((button) => button.addEventListener("click", () => {
@@ -370,9 +236,7 @@
         }));
         byId("model-filter").addEventListener("change", (event) => { state.model = event.target.value; render(); });
         byId("clear-selection").addEventListener("click", () => { state.bucket = null; render(); });
-        byId("status").textContent = data.message;
         byId("footer").textContent = `扫描 ${data.files_scanned} 个文件 · ${data.credit_records} 条有效记录 · ${data.malformed_records} 条无效记录 · Credits 字段：${(data.credit_fields || []).join(", ") || "未发现"}`;
-        byId("generated-at").textContent = new Date(data.generated_at).toLocaleString("zh-CN");
         render();
     </script>
 </body>
