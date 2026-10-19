@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report explicitly recorded GitHub Copilot Credits from local VS Code logs."""
+"""Report GitHub Copilot Credits and usage from local VS Code logs."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import tempfile
 import webbrowser
 from collections import defaultdict
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
@@ -50,14 +50,24 @@ TIMESTAMP_FIELDS = {
     "eventtimestamp",
     "startedat",
 }
-MODEL_FIELD_PRIORITY = ("resolvedmodel", "modelname", "model", "modelid", "selectedmodel", "family")
+MODEL_FIELD_PRIORITY = (
+    "resolvedmodel",
+    "modeldisplayname",
+    "modelname",
+    "model",
+    "modelid",
+    "selectedmodel",
+    "family",
+)
 MODEL_ALIASES = {
     "copilotauto": "GPT-6 Luna",
     "auto": "GPT-6 Luna",
     "gpt6luna": "GPT-6 Luna",
 }
-CACHE_VERSION = 1
+CACHE_VERSION = 5
 CACHE_FILENAME = "index.json"
+AGENT_USAGE_EVENT = "session.usage_record"
+NANO_AIU_PER_CREDIT = Decimal("1000000000")
 
 
 def _normalize_key(key: Any) -> str:
@@ -127,6 +137,11 @@ def _model_in(record: dict[str, Any]) -> str | None:
             if isinstance(candidate, str) and candidate.strip():
                 model_name = candidate.strip()
                 return MODEL_ALIASES.get(_normalize_key(model_name), model_name)
+    if record.get("type") == AGENT_USAGE_EVENT:
+        data = record.get("data")
+        usage = data.get("usage") if isinstance(data, dict) else None
+        if isinstance(usage, dict):
+            return _model_in(usage)
     return None
 
 
@@ -151,6 +166,33 @@ def _credit_values(record: dict[str, Any]) -> Iterator[tuple[str, Decimal | None
                     yield str(key), None
             else:
                 yield str(key), None
+    if record.get("type") == AGENT_USAGE_EVENT:
+        data = record.get("data")
+        usage = data.get("usage") if isinstance(data, dict) else None
+        copilot_usage = usage.get("copilotUsage") if isinstance(usage, dict) else None
+        nano_aiu = (
+            _as_decimal(copilot_usage.get("totalNanoAiu"))
+            if isinstance(copilot_usage, dict) and usage.get("aiCreditsStatus") == "complete"
+            else None
+        )
+        if nano_aiu is not None and nano_aiu >= 0:
+            yield "usage.copilotUsage.totalNanoAiu", nano_aiu / NANO_AIU_PER_CREDIT
+
+
+def _has_unpriced_agent_usage(record: dict[str, Any]) -> bool:
+    if record.get("type") != AGENT_USAGE_EVENT:
+        return False
+    data = record.get("data")
+    usage = data.get("usage") if isinstance(data, dict) else None
+    if not isinstance(usage, dict) or usage.get("aiCreditsStatus") != "complete":
+        return False
+    copilot_usage = usage.get("copilotUsage")
+    nano_aiu = (
+        _as_decimal(copilot_usage.get("totalNanoAiu"))
+        if isinstance(copilot_usage, dict)
+        else None
+    )
+    return nano_aiu is None or nano_aiu < 0
 
 
 def _session_creation_timestamp(value: Any) -> datetime | None:
@@ -244,21 +286,22 @@ def _files_from_paths(paths: Iterable[Path]) -> list[Path]:
 
 def discover_default_paths() -> list[Path]:
     appdata = os.environ.get("APPDATA")
-    if not appdata:
-        return []
-    storage = Path(appdata) / "Code" / "User" / "workspaceStorage"
-    if not storage.is_dir():
-        return []
     roots: list[Path] = []
-    for workspace in storage.iterdir():
-        chat_sessions = workspace / "chatSessions"
-        if chat_sessions.is_dir():
-            roots.append(chat_sessions)
-        extension_dir = workspace / "GitHub.copilot-chat"
-        for folder_name in ("debug-logs", "transcripts"):
-            candidate = extension_dir / folder_name
-            if candidate.is_dir():
-                roots.append(candidate)
+    if appdata:
+        storage = Path(appdata) / "Code" / "User" / "workspaceStorage"
+        if storage.is_dir():
+            for workspace in storage.iterdir():
+                chat_sessions = workspace / "chatSessions"
+                if chat_sessions.is_dir():
+                    roots.append(chat_sessions)
+                extension_dir = workspace / "GitHub.copilot-chat"
+                for folder_name in ("debug-logs", "transcripts"):
+                    candidate = extension_dir / folder_name
+                    if candidate.is_dir():
+                        roots.append(candidate)
+    agent_sessions = Path.home() / ".copilot" / "session-state"
+    if agent_sessions.is_dir():
+        roots.append(agent_sessions)
     return roots
 
 
@@ -279,23 +322,38 @@ def _file_contribution(path: Path) -> dict[str, Any]:
         "weekly": defaultdict(lambda: defaultdict(Decimal)),
         "monthly": defaultdict(lambda: defaultdict(Decimal)),
     }
+    unpriced_usage_periods: dict[str, dict[str, int]] = {
+        "daily": defaultdict(int),
+        "weekly": defaultdict(int),
+        "monthly": defaultdict(int),
+    }
     field_names: set[str] = set()
     field_count = 0
     record_count = 0
     undated_total = Decimal(0)
     undated_records = 0
     undated_by_model: dict[str, Decimal] = defaultdict(Decimal)
-    session_created = next(
-        (created for document in documents if (created := _session_creation_timestamp(document))),
-        None,
-    )
-    if session_created is not None:
-        session_day = session_created.date()
+    session_dates: set[date] = set()
+    for document in documents:
+        session_created = _session_creation_timestamp(document)
+        if session_created is not None:
+            session_dates.add(session_created.date())
+        if isinstance(document, dict) and document.get("type") == "session.start":
+            timestamp = _timestamp_in(document)
+            if timestamp is not None:
+                session_dates.add(timestamp.date())
+    for session_day in session_dates:
         session_periods["daily"][session_day.isoformat()] += 1
         session_periods["weekly"][_week_key(session_day)] += 1
         session_periods["monthly"][session_day.strftime("%Y-%m")] += 1
     for document in documents:
         for record, timestamp, model in _walk_records(document):
+            if record.get("type") == "session.usage_record":
+                if _has_unpriced_agent_usage(record) and timestamp is not None:
+                    day = timestamp.date()
+                    unpriced_usage_periods["daily"][day.isoformat()] += 1
+                    unpriced_usage_periods["weekly"][_week_key(day)] += 1
+                    unpriced_usage_periods["monthly"][day.strftime("%Y-%m")] += 1
             for field_name, amount in _credit_values(record):
                 field_names.add(field_name)
                 field_count += 1
@@ -329,6 +387,9 @@ def _file_contribution(path: Path) -> dict[str, Any]:
             for period, groups in totals.items()
         },
         "session_periods": {period: dict(groups) for period, groups in session_periods.items()},
+        "unpriced_usage_periods": {
+            period: dict(groups) for period, groups in unpriced_usage_periods.items()
+        },
         "model_periods": {
             period: {
                 key: {model: str(value) for model, value in models.items()}
@@ -384,7 +445,12 @@ def _valid_cache_entry(entry: Any, size: int, mtime_ns: int) -> bool:
         for value in (contribution["undated_total"],):
             if not Decimal(value).is_finite():
                 return False
-        for key in ("malformed", "field_count", "record_count", "undated_records"):
+        for key in (
+            "malformed",
+            "field_count",
+            "record_count",
+            "undated_records",
+        ):
             if not isinstance(contribution[key], int) or contribution[key] < 0:
                 return False
         if not isinstance(contribution["field_names"], list) or not all(
@@ -407,6 +473,12 @@ def _valid_cache_entry(entry: Any, size: int, mtime_ns: int) -> bool:
                 ):
                     return False
         for groups in contribution["session_periods"].values():
+            if not isinstance(groups, dict) or any(
+                not isinstance(key, str) or not isinstance(value, int) or value < 0
+                for key, value in groups.items()
+            ):
+                return False
+        for groups in contribution["unpriced_usage_periods"].values():
             if not isinstance(groups, dict) or any(
                 not isinstance(key, str) or not isinstance(value, int) or value < 0
                 for key, value in groups.items()
@@ -464,6 +536,11 @@ def analyze_paths(paths: Iterable[Path], cache_dir: Path | None = None) -> dict[
         "weekly": defaultdict(int),
         "monthly": defaultdict(int),
     }
+    unpriced_usage_periods: dict[str, dict[str, int]] = {
+        "daily": defaultdict(int),
+        "weekly": defaultdict(int),
+        "monthly": defaultdict(int),
+    }
     model_periods: dict[str, dict[str, dict[str, Decimal]]] = {
         "daily": defaultdict(lambda: defaultdict(Decimal)),
         "weekly": defaultdict(lambda: defaultdict(Decimal)),
@@ -488,6 +565,9 @@ def analyze_paths(paths: Iterable[Path], cache_dir: Path | None = None) -> dict[
         for period, groups in contribution["session_periods"].items():
             for key, count in groups.items():
                 session_periods[period][key] += count
+        for period, groups in contribution["unpriced_usage_periods"].items():
+            for key, count in groups.items():
+                unpriced_usage_periods[period][key] += count
         for period, groups in contribution["model_periods"].items():
             for key, models in groups.items():
                 for model, amount in models.items():
@@ -496,9 +576,22 @@ def analyze_paths(paths: Iterable[Path], cache_dir: Path | None = None) -> dict[
     has_fields = field_count > 0
     status = "credits_found" if has_fields else "no_credit_fields"
     if not has_fields:
-        message = "无可统计的 Credits 字段；未将 tokens、模型名或请求次数换算为 Credits。"
+        message = (
+            "无可统计的 Credits 字段；仅完整记录中的 Nano AIU 按 10 亿:1 折算，"
+            "不将 tokens、cost、模型名或请求次数换算为 Credits。"
+        )
     elif record_count == 0:
         message = "发现明确的 Credits 字段，但没有可解析的数值。"
+    elif any(
+        field_name == "usage.copilotUsage.totalNanoAiu"
+        for field_name in field_names
+    ):
+        message = "已将完整用量记录中的 Nano AIU 汇总并按 10 亿:1 折算为 Credits。"
+        if undated_records:
+            message += " 部分 Credits 记录缺少可解析时间，已单独列出未分组用量。"
+        unpriced_count = sum(unpriced_usage_periods["daily"].values())
+        if unpriced_count:
+            message += f" 另有 {unpriced_count} 条记录缺少 Nano AIU，未计入 Credits。"
     elif undated_records:
         message = "部分 Credits 记录缺少可解析时间，已单独列出未分组用量。"
     else:
@@ -525,6 +618,10 @@ def analyze_paths(paths: Iterable[Path], cache_dir: Path | None = None) -> dict[
             period: dict(sorted(groups.items()))
             for period, groups in session_periods.items()
         },
+        "unpriced_usage_periods": {
+            period: dict(sorted(groups.items()))
+            for period, groups in unpriced_usage_periods.items()
+        },
         "model_periods": {
             period: {
                 key: {model: _json_number(amount) for model, amount in sorted(models.items())}
@@ -550,10 +647,26 @@ def _current_usage(result: dict[str, Any], generated_at: datetime) -> dict[str, 
     daily_key = today.isoformat()
     monthly_key = today.strftime("%Y-%m")
     periods = result["periods"]
+    unpriced = result.get("unpriced_usage_periods", {})
+    today_unpriced = unpriced.get("daily", {}).get(daily_key, 0)
+    month_unpriced = unpriced.get("monthly", {}).get(monthly_key, 0)
     return {
-        "today": {"label": daily_key, "value": periods["daily"].get(daily_key, 0)},
-        "month": {"label": monthly_key, "value": periods["monthly"].get(monthly_key, 0)},
+        "today": {
+            "label": daily_key,
+            "value": None if today_unpriced else periods["daily"].get(daily_key, 0),
+            "unpriced_records": today_unpriced,
+        },
+        "month": {
+            "label": monthly_key,
+            "value": None if month_unpriced else periods["monthly"].get(monthly_key, 0),
+            "unpriced_records": month_unpriced,
+        },
     }
+
+
+def _format_credits(value: int | float | Decimal) -> str:
+    rounded = Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return f"{rounded:.2f}"
 
 
 def format_table(result: dict[str, Any]) -> str:
@@ -562,6 +675,8 @@ def format_table(result: dict[str, Any]) -> str:
         lines.append(
             f"缓存: 命中 {result['cache_hits']} 个，重新解析 {result['files_reparsed']} 个"
         )
+    for day, count in result.get("unpriced_usage_periods", {}).get("daily", {}).items():
+        lines.append(f"未计价的用量事件: {day} {count} 条（未计入 Credits）")
     labels = (("daily", "每日"), ("weekly", "每周"), ("monthly", "每月"))
     if result["status"] == "no_credit_fields":
         lines.append(f"扫描文件: {result['files_scanned']}  |  坏记录: {result['malformed_records']}")
@@ -574,7 +689,7 @@ def format_table(result: dict[str, Any]) -> str:
         rows = 0
         for period, label in labels:
             for bucket, amount in result["periods"][period].items():
-                lines.append(f"{label:<8} {bucket:<12} {amount}")
+                lines.append(f"{label:<8} {bucket:<12} {_format_credits(amount)}")
                 rows += 1
         if rows == 0:
             lines.append("没有带有效时间的 Credits 记录。")
@@ -591,7 +706,7 @@ def format_table(result: dict[str, Any]) -> str:
         return "\n".join(lines)
     if result["undated_records"]:
         lines.append(
-            f"未分组（缺少时间）: {result['undated_credits']} Credits"
+            f"未分组（缺少时间）: {_format_credits(result['undated_credits'])} Credits"
             f"，{result['undated_records']} 条记录"
         )
     lines.append(f"有效记录: {result['credit_records']}  |  坏记录: {result['malformed_records']}")
@@ -652,6 +767,7 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
         }
         .segmented button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 2px 7px rgba(55, 35, 45, .1); }
         .filter { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+        .filter[hidden] { display: none; }
         select { min-width: 190px; padding: 9px 32px 9px 11px; border: 1px solid var(--line); border-radius: 5px; color: var(--ink); background: var(--paper); }
         .metrics { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0 0 20px; font-size: 25px; }
         .metric { display: inline-flex; align-items: baseline; gap: 5px; }
@@ -662,27 +778,43 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
         h2 { margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600; }
         .section-note { margin: 0; color: var(--muted); font-size: 12px; }
         .empty { padding: 32px 16px; color: var(--muted); text-align: center; }
-        .content-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr); gap: 26px; margin-top: 6px; }
-        .table-wrap { overflow-x: auto; border-top: 1px solid var(--line); }
-        table { width: 100%; border-collapse: collapse; text-align: left; }
-        th { padding: 11px 10px; color: var(--muted); font-size: 11px; font-weight: 600; }
-        td { padding: 11px 10px; border-top: 1px solid #efe5ea; }
-        tbody tr[data-bucket] { cursor: pointer; }
-        tbody tr[data-bucket]:hover, tbody tr.selected { background: #fff0f6; }
-        td.amount, th.amount { text-align: right; font-variant-numeric: tabular-nums; }
-        .model-name { max-width: 260px; overflow-wrap: anywhere; }
-        .model-value { min-width: 150px; }
-        .bar-track { height: 6px; margin-top: 7px; overflow: hidden; border-radius: 4px; background: #f0e8ec; }
-        .bar-fill { height: 100%; border-radius: inherit; background: var(--accent); }
-        .period-bar-track { display: flex; justify-content: flex-end; }
+        .content-grid { display: grid; gap: 28px; margin-top: 6px; }
+        .chart-section { min-width: 0; }
+        .chart-frame { position: relative; margin-top: 12px; }
+        .chart-scroll { overflow-x: auto; border-top: 1px solid var(--line); }
+        .period-chart { display: block; height: 340px; }
+        .chart-gridline { stroke: #eadfe4; stroke-width: 1; }
+        .chart-axis { fill: var(--muted); font-size: 11px; }
+        .chart-period { fill: var(--ink); font-size: 11px; }
+        .chart-group { cursor: pointer; outline: none; }
+        .chart-group:focus .chart-hit, .chart-group:hover .chart-hit, .chart-group.selected .chart-hit { fill: #fff0f6; }
+        .chart-hit { fill: transparent; }
+        .chart-bar { stroke: var(--paper); stroke-width: 1; }
+        .chart-legend { display: flex; flex-wrap: wrap; gap: 16px; padding-top: 10px; color: var(--muted); font-size: 12px; }
+        .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+        .legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+        .chart-tooltip { position: absolute; z-index: 2; width: max-content; max-width: min(340px, calc(100% - 12px)); padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); box-shadow: var(--shadow); color: var(--ink); font-size: 12px; line-height: 1.5; pointer-events: none; }
+        .chart-tooltip[hidden] { display: none; }
+        .chart-tooltip-table { width: 100%; border-collapse: collapse; }
+        .chart-tooltip-table th, .chart-tooltip-table td { padding: 4px 0; border-bottom: 1px solid var(--line); }
+        .chart-tooltip-table tr:last-child th, .chart-tooltip-table tr:last-child td { border-bottom: 0; }
+        .chart-tooltip-table th { padding-right: 18px; color: var(--muted); font-weight: 500; text-align: left; white-space: nowrap; }
+        .chart-tooltip-table td { max-width: 210px; font-variant-numeric: tabular-nums; text-align: left; overflow-wrap: anywhere; }
+        .model-chart { display: grid; gap: 16px; margin-top: 12px; }
+        .model-chart-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 10px; align-items: center; gap: 6px 12px; }
+        .model-chart-label { grid-column: 1; grid-row: 1; min-width: 0; overflow-wrap: anywhere; }
+        .model-chart-track { grid-column: 1 / -1; grid-row: 2; direction: ltr; width: 100%; height: 10px; overflow: hidden; border-radius: 3px; background: #f0e8ec; }
+        .model-chart-bar { height: 100%; border-radius: inherit; background: var(--accent); }
+        .model-chart-value { grid-column: 2; grid-row: 1; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .clear-selection { padding: 5px 9px; border: 1px solid var(--line); border-radius: 4px; color: #c51b62; background: transparent; cursor: pointer; }
         .footer { margin-top: 34px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
         @media (max-width: 760px) {
             .shell { padding: 24px 17px 40px; }
             .toolbar { align-items: flex-start; flex-direction: column; }
-            .content-grid { grid-template-columns: 1fr; gap: 8px; }
+            .content-grid { gap: 22px; }
             .filter { width: 100%; justify-content: space-between; }
             select { flex: 1; min-width: 0; }
+            .model-chart-row { gap: 6px 8px; }
         }
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; } }
     </style>
@@ -699,6 +831,9 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
                 <button type="button" data-period="weekly" aria-pressed="false">每周</button>
                 <button type="button" data-period="monthly" aria-pressed="false">每月</button>
             </div>
+            <label class="filter" id="month-filter-label" hidden>月份
+                <select id="month-filter" aria-label="选择月份"></select>
+            </label>
             <label class="filter">模型筛选
                 <select id="model-filter" aria-label="筛选模型"></select>
             </label>
@@ -712,11 +847,20 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
             <button class="clear-selection" id="clear-selection" type="button" hidden>显示全部周期</button>
         </div>
         <div class="content-grid">
-            <section>
-                <div class="table-wrap"><table><thead><tr><th>周期</th><th class="amount">Credits</th><th class="amount">会话数</th></tr></thead><tbody id="period-rows"></tbody></table><div class="empty" id="period-empty" hidden>暂无周期记录。</div></div>
+            <section class="chart-section" aria-label="周期用量">
+                <div class="chart-frame" id="period-chart-frame">
+                    <div class="chart-scroll"><svg class="period-chart" id="period-chart" role="img" aria-label="周期 Credits 与会话数"></svg></div>
+                    <div class="chart-tooltip" id="chart-tooltip" role="tooltip" hidden></div>
+                </div>
+                <div class="chart-legend" aria-label="图例">
+                    <span class="legend-item"><span class="legend-swatch" style="background:#ff3d8e"></span>Credits（向上）</span>
+                    <span class="legend-item"><span class="legend-swatch" style="background:#568ba3"></span>会话数（向下）</span>
+                </div>
+                <div class="empty" id="period-empty" hidden>暂无周期记录。</div>
             </section>
-            <section>
-                <div class="table-wrap"><table><thead><tr><th>模型</th><th class="amount">Credits</th></tr></thead><tbody id="model-rows"></tbody></table><div class="empty" id="model-empty" hidden>当前周期没有模型用量。</div></div>
+            <section class="chart-section" aria-label="模型 Credits">
+                <div class="model-chart" id="model-chart" role="list"></div>
+                <div class="empty" id="model-empty" hidden>当前周期没有模型用量。</div>
             </section>
         </div>
         <footer class="footer" id="footer"></footer>
@@ -726,14 +870,26 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
         const data = JSON.parse(document.getElementById("report-data").textContent);
         const labels = { daily: "每日", weekly: "每周", monthly: "每月" };
         const colors = ["#ff3d8e", "#e47758", "#568ba3", "#b69a3b", "#6d8e64", "#c06b7b"];
-        const state = { period: "daily", model: "*", bucket: null };
+        const chartColors = { credits: "#ff3d8e", sessions: "#a855f7" };
+        const state = { period: "daily", model: "*", bucket: null, month: "" };
         const byId = (id) => document.getElementById(id);
         const number = (value) => new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 6 }).format(value || 0);
+        const creditsNumber = (value) => new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
         const sum = (values) => Object.values(values || {}).reduce((total, value) => total + value, 0);
-        const bucketNames = () => [...new Set([
+        const allBucketNames = () => [...new Set([
             ...Object.keys(data.periods[state.period] || {}),
             ...Object.keys(data.session_periods?.[state.period] || {})
         ])].sort();
+        const availableMonths = () => [...new Set([
+            ...Object.keys(data.periods.daily || {}),
+            ...Object.keys(data.session_periods?.daily || {})
+        ].map((bucket) => bucket.slice(0, 7)))].sort();
+        const bucketNames = () => {
+            const buckets = allBucketNames();
+            return state.period === "daily" && state.month
+                ? buckets.filter((bucket) => bucket.startsWith(`${state.month}-`))
+                : buckets;
+        };
         const modelNames = () => {
             const names = new Set(Object.keys(data.undated_by_model || {}));
             for (const buckets of Object.values(data.model_periods[state.period] || {})) {
@@ -760,63 +916,176 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
             }
             select.value = state.model;
         }
+        function populateMonthFilter() {
+            const select = byId("month-filter");
+            const months = availableMonths();
+            if (!months.includes(state.month)) state.month = months.at(-1) || "";
+            select.replaceChildren();
+            for (const month of months) {
+                const option = document.createElement("option");
+                option.value = month;
+                option.textContent = month;
+                select.append(option);
+            }
+            select.value = state.month;
+            select.disabled = months.length === 0;
+            byId("month-filter-label").hidden = state.period !== "daily";
+        }
         function modelBreakdown() {
             const result = {};
             const buckets = data.model_periods[state.period] || {};
-            if (state.bucket) return { ...(buckets[state.bucket] || {}) };
-            for (const models of Object.values(buckets)) {
-                for (const [name, amount] of Object.entries(models)) result[name] = (result[name] || 0) + amount;
+            if (state.bucket) Object.assign(result, buckets[state.bucket] || {});
+            else {
+                for (const bucket of bucketNames()) {
+                    const models = buckets[bucket] || {};
+                    for (const [name, amount] of Object.entries(models)) result[name] = (result[name] || 0) + amount;
+                }
             }
-            return result;
+            return state.model === "*" ? result : (state.model in result ? { [state.model]: result[state.model] } : {});
         }
-        function renderTables() {
-            const periodRows = byId("period-rows");
-            periodRows.replaceChildren();
-            const buckets = bucketNames().slice().reverse();
-            byId("period-empty").hidden = buckets.length > 0;
+        function svgElement(name, attributes = {}) {
+            const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+            for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+            return element;
+        }
+        function showTooltip(bucket, clientX, clientY) {
+            const tooltip = byId("chart-tooltip");
+            const frame = byId("period-chart-frame");
+            const modelLabel = state.model === "*" ? "全部模型" : state.model;
+            const sessionValue = data.session_periods?.[state.period]?.[bucket] || 0;
+            const table = document.createElement("table");
+            table.className = "chart-tooltip-table";
+            const rows = [
+                ["周期", bucket],
+                ["Credits", creditsNumber(selectedAmount(bucket))],
+                ["会话数（全部模型）", number(sessionValue)],
+                ["模型筛选", modelLabel],
+            ];
+            for (const [label, value] of rows) {
+                const row = table.insertRow();
+                const heading = document.createElement("th");
+                heading.scope = "row";
+                heading.textContent = label;
+                const cell = row.insertCell();
+                cell.textContent = value;
+                row.prepend(heading);
+            }
+            tooltip.replaceChildren(table);
+            tooltip.hidden = false;
+            const bounds = frame.getBoundingClientRect();
+            tooltip.style.left = `${Math.min(Math.max(clientX - bounds.left + 12, 6), frame.clientWidth - tooltip.offsetWidth - 6)}px`;
+            tooltip.style.top = `${Math.min(Math.max(clientY - bounds.top + 12, 6), frame.clientHeight - tooltip.offsetHeight - 6)}px`;
+        }
+        function renderPeriodChart() {
+            const chart = byId("period-chart");
+            const buckets = bucketNames();
+            const empty = byId("period-empty");
+            chart.replaceChildren();
+            empty.hidden = buckets.length > 0;
+            const width = Math.max(640, buckets.length * 88 + 100, chart.parentElement.clientWidth);
+            const height = 340;
+            const margin = { top: 20, right: 58, bottom: 52, left: 62 };
+            const plotWidth = width - margin.left - margin.right;
+            const plotHeight = height - margin.top - margin.bottom;
+            const creditPlotHeight = plotHeight * 0.62;
+            const sessionPlotHeight = plotHeight - creditPlotHeight;
+            const baselineY = margin.top + creditPlotHeight;
             const creditMaximum = Math.max(...buckets.map(selectedAmount), 0);
             const sessionMaximum = Math.max(...buckets.map((bucket) => data.session_periods?.[state.period]?.[bucket] || 0), 0);
-            const appendBar = (cell, value, maximum) => {
-                const track = document.createElement("div"); track.className = "bar-track period-bar-track";
-                const fill = document.createElement("div"); fill.className = "bar-fill";
-                fill.style.width = `${maximum ? value / maximum * 100 : 0}%`;
-                track.append(fill); cell.append(track);
-            };
-            for (const bucket of buckets) {
-                const row = document.createElement("tr");
-                row.dataset.bucket = bucket;
-                if (state.bucket === bucket) row.classList.add("selected");
-                row.tabIndex = 0;
+            const creditScale = creditMaximum || 1;
+            const sessionScale = sessionMaximum || 1;
+            const step = plotWidth / Math.max(buckets.length, 1);
+            chart.setAttribute("viewBox", `0 0 ${width} ${height}`);
+            chart.setAttribute("width", width);
+            chart.setAttribute("height", height);
+            chart.style.width = `${width}px`;
+            chart.setAttribute("aria-label", `${labels[state.period]} Credits 与会话数，X 轴日期共用，Credits 向上，会话数向下，分别独立刻度`);
+            for (let tick = 0; tick <= 2; tick += 1) {
+                const creditY = margin.top + creditPlotHeight * tick / 2;
+                const sessionY = baselineY + sessionPlotHeight * tick / 2;
+                chart.append(svgElement("line", { x1: margin.left, x2: width - margin.right, y1: creditY, y2: creditY, class: "chart-gridline" }));
+                if (tick > 0) chart.append(svgElement("line", { x1: margin.left, x2: width - margin.right, y1: sessionY, y2: sessionY, class: "chart-gridline" }));
+                const creditTick = creditScale * (2 - tick) / 2;
+                const leftLabel = svgElement("text", { x: margin.left - 8, y: creditY + 4, "text-anchor": "end", class: "chart-axis" });
+                leftLabel.textContent = creditsNumber(creditTick);
+                chart.append(leftLabel);
+                const sessionTick = sessionScale * tick / 2;
+                const rightLabel = svgElement("text", { x: width - margin.right + 8, y: sessionY + 4, "text-anchor": "start", class: "chart-axis" });
+                rightLabel.textContent = number(sessionTick);
+                chart.append(rightLabel);
+            }
+            const creditAxisY = margin.top + creditPlotHeight / 2;
+            const leftTitle = svgElement("text", { x: 14, y: creditAxisY, transform: `rotate(-90 14 ${creditAxisY})`, "text-anchor": "middle", class: "chart-axis" });
+            leftTitle.textContent = "Credits";
+            const sessionAxisY = baselineY + sessionPlotHeight / 2;
+            const rightTitle = svgElement("text", { x: width - 12, y: sessionAxisY, transform: `rotate(90 ${width - 12} ${sessionAxisY})`, "text-anchor": "middle", class: "chart-axis" });
+            rightTitle.textContent = "会话数";
+            chart.append(leftTitle, rightTitle);
+            buckets.forEach((bucket, index) => {
+                const center = margin.left + step * (index + 0.5);
                 const creditValue = selectedAmount(bucket);
                 const sessionValue = data.session_periods?.[state.period]?.[bucket] || 0;
-                row.setAttribute("aria-label", `${bucket}: ${number(creditValue)} Credits`);
-                const period = document.createElement("td"); period.textContent = bucket;
-                const amount = document.createElement("td"); amount.className = "amount";
-                amount.append(document.createTextNode(number(creditValue))); appendBar(amount, creditValue, creditMaximum);
-                const sessions = document.createElement("td"); sessions.className = "amount";
-                sessions.append(document.createTextNode(number(sessionValue))); appendBar(sessions, sessionValue, sessionMaximum);
-                row.append(period, amount, sessions);
+                const barWidth = Math.min(step * 0.8, 48, Math.max(12, 96 / Math.sqrt(buckets.length)));
+                const barX = center - barWidth / 2;
+                const group = svgElement("g", {
+                    class: `chart-group${state.bucket === bucket ? " selected" : ""}`,
+                    "data-bucket": bucket,
+                    tabindex: "0",
+                    role: "button",
+                    "aria-pressed": String(state.bucket === bucket),
+                    "aria-label": `${bucket}，${creditsNumber(creditValue)} Credits，${number(sessionValue)} 个会话`,
+                    "aria-describedby": "chart-tooltip",
+                });
+                group.append(svgElement("rect", { x: center - step / 2 + 2, y: margin.top, width: Math.max(step - 4, 1), height: plotHeight + 36, class: "chart-hit" }));
+                const creditHeight = creditValue / creditScale * creditPlotHeight;
+                const sessionHeight = sessionValue / sessionScale * sessionPlotHeight;
+                group.append(svgElement("rect", {
+                    x: barX, y: baselineY - creditHeight,
+                    width: barWidth, height: creditHeight, fill: chartColors.credits, class: "chart-bar",
+                    "data-series": "credits", "data-value": creditValue,
+                    "aria-label": `${creditsNumber(creditValue)} Credits`,
+                }));
+                group.append(svgElement("rect", {
+                    x: barX, y: baselineY,
+                    width: barWidth, height: sessionHeight, fill: chartColors.sessions, class: "chart-bar",
+                    "data-series": "sessions", "data-value": sessionValue,
+                    "aria-label": `${number(sessionValue)} 个会话`,
+                }));
+                const periodLabel = svgElement("text", { x: center, y: height - 18, "text-anchor": "middle", class: "chart-period" });
+                periodLabel.textContent = bucket;
+                group.append(periodLabel);
                 const activate = () => { state.bucket = state.bucket === bucket ? null : bucket; render(); };
-                row.addEventListener("click", activate);
-                row.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(); } });
-                periodRows.append(row);
-            }
+                group.addEventListener("click", activate);
+                group.addEventListener("keydown", (event) => {
+                    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(); }
+                });
+                group.addEventListener("pointerenter", (event) => showTooltip(bucket, event.clientX, event.clientY));
+                group.addEventListener("pointermove", (event) => showTooltip(bucket, event.clientX, event.clientY));
+                group.addEventListener("pointerleave", () => { byId("chart-tooltip").hidden = true; });
+                group.addEventListener("focus", () => {
+                    const bounds = group.getBoundingClientRect();
+                    showTooltip(bucket, bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+                });
+                group.addEventListener("blur", () => { byId("chart-tooltip").hidden = true; });
+                chart.append(group);
+            });
+        }
+        function renderModelChart() {
             const models = modelBreakdown();
-            const modelRows = byId("model-rows");
-            modelRows.replaceChildren();
+            const modelChart = byId("model-chart");
+            modelChart.replaceChildren();
             const entries = Object.entries(models).sort((a, b) => b[1] - a[1]);
             byId("model-empty").hidden = entries.length > 0;
             const maximum = Math.max(...entries.map((entry) => entry[1]), 0);
             for (const [index, [name, amount]] of entries.entries()) {
-                const row = document.createElement("tr");
-                const model = document.createElement("td"); model.className = "model-name"; model.textContent = name;
-                const value = document.createElement("td"); value.className = "amount model-value";
-                value.append(document.createTextNode(number(amount)));
-                const track = document.createElement("div"); track.className = "bar-track";
-                const fill = document.createElement("div"); fill.className = "bar-fill";
+                const row = document.createElement("div"); row.className = "model-chart-row"; row.setAttribute("role", "listitem");
+                const model = document.createElement("span"); model.className = "model-chart-label"; model.textContent = name;
+                const track = document.createElement("div"); track.className = "model-chart-track"; track.setAttribute("aria-hidden", "true");
+                const fill = document.createElement("div"); fill.className = "model-chart-bar";
                 fill.style.width = `${maximum ? amount / maximum * 100 : 0}%`;
                 fill.style.background = colors[index % colors.length];
-                track.append(fill); value.append(track); row.append(model, value); modelRows.append(row);
+                const value = document.createElement("span"); value.className = "model-chart-value"; value.textContent = `${creditsNumber(amount)} Credits`;
+                track.append(fill); row.append(model, track, value); modelChart.append(row);
             }
         }
         function renderMetrics() {
@@ -825,32 +1094,42 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
             const sessionTotal = buckets.reduce((count, bucket) => count + (data.session_periods?.[state.period]?.[bucket] || 0), 0);
             const peak = buckets.map((bucket) => ({ bucket, value: selectedAmount(bucket) })).sort((a, b) => b.value - a.value)[0];
             const current = data.current_usage;
-            byId("today-label").textContent = `今日用量 · ${current.today.label}`;
-            byId("today-value").textContent = number(current.today.value);
-            byId("month-label").textContent = `本月用量 · ${current.month.label}`;
-            byId("month-value").textContent = number(current.month.value);
-            byId("total-value").textContent = number(total);
+            byId("today-label").textContent = `今日用量 · ${current.today.label}${current.today.unpriced_records ? `（${number(current.today.unpriced_records)} 条 Credits 未知）` : ""}`;
+            byId("today-value").textContent = current.today.value === null ? "—" : creditsNumber(current.today.value);
+            byId("today-value").title = current.today.unpriced_records
+                ? `有 ${number(current.today.unpriced_records)} 条用量记录未提供可确认的 Credits 数值。`
+                : "";
+            byId("month-label").textContent = `本月用量 · ${current.month.label}${current.month.unpriced_records ? `（${number(current.month.unpriced_records)} 条 Credits 未知）` : ""}`;
+            byId("month-value").textContent = current.month.value === null ? "—" : creditsNumber(current.month.value);
+            byId("month-value").title = current.month.unpriced_records
+                ? `有 ${number(current.month.unpriced_records)} 条用量记录未提供可确认的 Credits 数值。`
+                : "";
+            byId("total-value").textContent = creditsNumber(total);
             byId("total-label").textContent = state.model === "*" ? `${labels[state.period]}区间用量` : "筛选模型用量";
             byId("session-count").textContent = number(sessionTotal);
             byId("peak-value").textContent = peak?.value ? peak.bucket : "-";
-            byId("peak-note").textContent = peak?.value ? `${number(peak.value)} Credits` : "Credits";
+            byId("peak-note").textContent = peak?.value ? `${creditsNumber(peak.value)} Credits` : "Credits";
             byId("model-count").textContent = modelNames().length;
-            byId("undated-value").textContent = number(data.undated_credits);
+            byId("undated-value").textContent = creditsNumber(data.undated_credits);
             byId("clear-selection").hidden = !state.bucket;
         }
         function render() {
             for (const button of document.querySelectorAll("[data-period]")) {
                 button.setAttribute("aria-pressed", String(button.dataset.period === state.period));
             }
+            populateMonthFilter();
             populateModelFilter();
             renderMetrics();
-            renderTables();
+            renderPeriodChart();
+            renderModelChart();
         }
         document.querySelectorAll("[data-period]").forEach((button) => button.addEventListener("click", () => {
             state.period = button.dataset.period; state.bucket = null; render();
         }));
+        byId("month-filter").addEventListener("change", (event) => { state.month = event.target.value; state.bucket = null; render(); });
         byId("model-filter").addEventListener("change", (event) => { state.model = event.target.value; render(); });
         byId("clear-selection").addEventListener("click", () => { state.bucket = null; render(); });
+        window.addEventListener("resize", renderPeriodChart);
         byId("footer").textContent = `扫描 ${data.files_scanned} 个文件 · ${data.credit_records} 条有效记录 · ${data.malformed_records} 条无效记录 · Credits 字段：${(data.credit_fields || []).join(", ") || "未发现"}`;
         render();
     </script>
@@ -874,7 +1153,10 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         metavar="PATH",
-        help="扫描指定文件或目录（可重复）；默认扫描 VS Code workspaceStorage 中的 Copilot 日志。",
+        help=(
+            "扫描指定文件或目录（可重复）；默认扫描 VS Code workspaceStorage 和 "
+            "~/.copilot/session-state 中的 Copilot 日志。"
+        ),
     )
     parser.add_argument("--format", choices=("table", "json"), default="table", help="输出格式。")
     parser.add_argument(

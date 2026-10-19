@@ -37,6 +37,7 @@
         }
         .segmented button[aria-pressed="true"] { background: var(--paper); color: var(--ink); box-shadow: 0 2px 7px rgba(55, 35, 45, .1); }
         .filter { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+        .filter[hidden] { display: none; }
         select { min-width: 190px; padding: 9px 32px 9px 11px; border: 1px solid var(--line); border-radius: 5px; color: var(--ink); background: var(--paper); }
         .metrics { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0 0 20px; font-size: 25px; }
         .metric { display: inline-flex; align-items: baseline; gap: 5px; }
@@ -47,27 +48,43 @@
         h2 { margin: 0; font-size: 22px; line-height: 1.2; font-weight: 600; }
         .section-note { margin: 0; color: var(--muted); font-size: 12px; }
         .empty { padding: 32px 16px; color: var(--muted); text-align: center; }
-        .content-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr); gap: 26px; margin-top: 6px; }
-        .table-wrap { overflow-x: auto; border-top: 1px solid var(--line); }
-        table { width: 100%; border-collapse: collapse; text-align: left; }
-        th { padding: 11px 10px; color: var(--muted); font-size: 11px; font-weight: 600; }
-        td { padding: 11px 10px; border-top: 1px solid #efe5ea; }
-        tbody tr[data-bucket] { cursor: pointer; }
-        tbody tr[data-bucket]:hover, tbody tr.selected { background: #fff0f6; }
-        td.amount, th.amount { text-align: right; font-variant-numeric: tabular-nums; }
-        .model-name { max-width: 260px; overflow-wrap: anywhere; }
-        .model-value { min-width: 150px; }
-        .bar-track { height: 6px; margin-top: 7px; overflow: hidden; border-radius: 4px; background: #f0e8ec; }
-        .bar-fill { height: 100%; border-radius: inherit; background: var(--accent); }
-        .period-bar-track { display: flex; justify-content: flex-end; }
+        .content-grid { display: grid; gap: 28px; margin-top: 6px; }
+        .chart-section { min-width: 0; }
+        .chart-frame { position: relative; margin-top: 12px; }
+        .chart-scroll { overflow-x: auto; border-top: 1px solid var(--line); }
+        .period-chart { display: block; height: 340px; }
+        .chart-gridline { stroke: #eadfe4; stroke-width: 1; }
+        .chart-axis { fill: var(--muted); font-size: 11px; }
+        .chart-period { fill: var(--ink); font-size: 11px; }
+        .chart-group { cursor: pointer; outline: none; }
+        .chart-group:focus .chart-hit, .chart-group:hover .chart-hit, .chart-group.selected .chart-hit { fill: #fff0f6; }
+        .chart-hit { fill: transparent; }
+        .chart-bar { stroke: var(--paper); stroke-width: 1; }
+        .chart-legend { display: flex; flex-wrap: wrap; gap: 16px; padding-top: 10px; color: var(--muted); font-size: 12px; }
+        .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+        .legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+        .chart-tooltip { position: absolute; z-index: 2; width: max-content; max-width: min(340px, calc(100% - 12px)); padding: 6px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper); box-shadow: var(--shadow); color: var(--ink); font-size: 12px; line-height: 1.5; pointer-events: none; }
+        .chart-tooltip[hidden] { display: none; }
+        .chart-tooltip-table { width: 100%; border-collapse: collapse; }
+        .chart-tooltip-table th, .chart-tooltip-table td { padding: 4px 0; border-bottom: 1px solid var(--line); }
+        .chart-tooltip-table tr:last-child th, .chart-tooltip-table tr:last-child td { border-bottom: 0; }
+        .chart-tooltip-table th { padding-right: 18px; color: var(--muted); font-weight: 500; text-align: left; white-space: nowrap; }
+        .chart-tooltip-table td { max-width: 210px; font-variant-numeric: tabular-nums; text-align: left; overflow-wrap: anywhere; }
+        .model-chart { display: grid; gap: 16px; margin-top: 12px; }
+        .model-chart-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 10px; align-items: center; gap: 6px 12px; }
+        .model-chart-label { grid-column: 1; grid-row: 1; min-width: 0; overflow-wrap: anywhere; }
+        .model-chart-track { grid-column: 1 / -1; grid-row: 2; direction: ltr; width: 100%; height: 10px; overflow: hidden; border-radius: 3px; background: #f0e8ec; }
+        .model-chart-bar { height: 100%; border-radius: inherit; background: var(--accent); }
+        .model-chart-value { grid-column: 2; grid-row: 1; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .clear-selection { padding: 5px 9px; border: 1px solid var(--line); border-radius: 4px; color: #c51b62; background: transparent; cursor: pointer; }
         .footer { margin-top: 34px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
         @media (max-width: 760px) {
             .shell { padding: 24px 17px 40px; }
             .toolbar { align-items: flex-start; flex-direction: column; }
-            .content-grid { grid-template-columns: 1fr; gap: 8px; }
+            .content-grid { gap: 22px; }
             .filter { width: 100%; justify-content: space-between; }
             select { flex: 1; min-width: 0; }
+            .model-chart-row { gap: 6px 8px; }
         }
         @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: .01ms !important; } }
     </style>
@@ -84,6 +101,9 @@
                 <button type="button" data-period="weekly" aria-pressed="false">每周</button>
                 <button type="button" data-period="monthly" aria-pressed="false">每月</button>
             </div>
+            <label class="filter" id="month-filter-label" hidden>月份
+                <select id="month-filter" aria-label="选择月份"></select>
+            </label>
             <label class="filter">模型筛选
                 <select id="model-filter" aria-label="筛选模型"></select>
             </label>
@@ -97,28 +117,49 @@
             <button class="clear-selection" id="clear-selection" type="button" hidden>显示全部周期</button>
         </div>
         <div class="content-grid">
-            <section>
-                <div class="table-wrap"><table><thead><tr><th>周期</th><th class="amount">Credits</th><th class="amount">会话数</th></tr></thead><tbody id="period-rows"></tbody></table><div class="empty" id="period-empty" hidden>暂无周期记录。</div></div>
+            <section class="chart-section" aria-label="周期用量">
+                <div class="chart-frame" id="period-chart-frame">
+                    <div class="chart-scroll"><svg class="period-chart" id="period-chart" role="img" aria-label="周期 Credits 与会话数"></svg></div>
+                    <div class="chart-tooltip" id="chart-tooltip" role="tooltip" hidden></div>
+                </div>
+                <div class="chart-legend" aria-label="图例">
+                    <span class="legend-item"><span class="legend-swatch" style="background:#ff3d8e"></span>Credits（向上）</span>
+                    <span class="legend-item"><span class="legend-swatch" style="background:#568ba3"></span>会话数（向下）</span>
+                </div>
+                <div class="empty" id="period-empty" hidden>暂无周期记录。</div>
             </section>
-            <section>
-                <div class="table-wrap"><table><thead><tr><th>模型</th><th class="amount">Credits</th></tr></thead><tbody id="model-rows"></tbody></table><div class="empty" id="model-empty" hidden>当前周期没有模型用量。</div></div>
+            <section class="chart-section" aria-label="模型 Credits">
+                <div class="model-chart" id="model-chart" role="list"></div>
+                <div class="empty" id="model-empty" hidden>当前周期没有模型用量。</div>
             </section>
         </div>
         <footer class="footer" id="footer"></footer>
     </main>
-    <script type="application/json" id="report-data">{"status":"credits_found","message":"部分 Credits 记录缺少可解析时间，已单独列出未分组用量。","files_scanned":145,"malformed_records":0,"credit_fields":["copilotCredits","credits"],"credit_field_count":73,"credit_records":73,"undated_credits":15.5456705,"undated_records":5,"undated_by_model":{"GPT-6 Luna":15.5456705},"periods":{"daily":{"2026-09-28":0.794868,"2026-09-29":0.5780959999999999,"2026-10-08":1.8692734999999998,"2026-10-10":2.748202,"2026-10-12":2.372666,"2026-10-13":0.731675,"2026-10-15":52.5943415,"2026-10-16":12.7061855},"weekly":{"2026-W40":1.3729639999999999,"2026-W41":4.6174755,"2026-W42":68.40486800000001},"monthly":{"2026-09":1.3729639999999999,"2026-10":73.0223435}},"session_periods":{"daily":{"2026-08-17":1,"2026-08-19":1,"2026-08-20":1,"2026-08-26":1,"2026-08-31":1,"2026-09-03":2,"2026-09-22":2,"2026-09-23":2,"2026-09-24":4,"2026-09-28":4,"2026-09-29":2,"2026-10-08":4,"2026-10-09":3,"2026-10-10":3,"2026-10-12":4,"2026-10-13":2,"2026-10-15":5,"2026-10-16":12},"weekly":{"2026-W34":3,"2026-W35":1,"2026-W36":3,"2026-W39":8,"2026-W40":6,"2026-W41":10,"2026-W42":23},"monthly":{"2026-08":5,"2026-09":16,"2026-10":33}},"model_periods":{"daily":{"2026-09-28":{"GPT-6 Luna":0.794868},"2026-09-29":{"GPT-6 Luna":0.5780959999999999},"2026-10-08":{"GPT-6 Luna":1.8692734999999998},"2026-10-10":{"GPT-6 Luna":2.748202},"2026-10-12":{"GPT-6 Luna":2.372666},"2026-10-13":{"GPT-6 Luna":0.731675},"2026-10-15":{"GPT-6 Luna":52.5943415},"2026-10-16":{"GPT-6 Luna":12.7061855}},"weekly":{"2026-W40":{"GPT-6 Luna":1.3729639999999999},"2026-W41":{"GPT-6 Luna":4.6174755},"2026-W42":{"GPT-6 Luna":68.40486800000001}},"monthly":{"2026-09":{"GPT-6 Luna":1.3729639999999999},"2026-10":{"GPT-6 Luna":73.0223435}}},"cache_hits":145,"files_reparsed":0,"generated_at":"2026-10-16T18:14:42.261471+08:00","current_usage":{"today":{"label":"2026-10-16","value":12.7061855},"month":{"label":"2026-10","value":73.0223435}}}</script>
+    <script type="application/json" id="report-data">{"status":"credits_found","message":"已将完整用量记录中的 Nano AIU 汇总并按 10 亿:1 折算为 Credits。 部分 Credits 记录缺少可解析时间，已单独列出未分组用量。","files_scanned":152,"malformed_records":0,"credit_fields":["copilotCredits","credits","usage.copilotUsage.totalNanoAiu"],"credit_field_count":175,"credit_records":175,"undated_credits":17.307923499999998,"undated_records":6,"undated_by_model":{"GPT-6 Luna":17.307923499999998},"periods":{"daily":{"2026-09-28":0.794868,"2026-09-29":0.5780959999999999,"2026-10-08":1.8692734999999998,"2026-10-10":2.748202,"2026-10-12":2.372666,"2026-10-13":0.731675,"2026-10-15":52.5943415,"2026-10-16":16.1892125,"2026-10-19":16.0761875},"weekly":{"2026-W40":1.3729639999999999,"2026-W41":4.6174755,"2026-W42":71.887895,"2026-W43":16.0761875},"monthly":{"2026-09":1.3729639999999999,"2026-10":92.581558}},"session_periods":{"daily":{"2026-08-17":1,"2026-08-19":1,"2026-08-20":1,"2026-08-26":1,"2026-08-31":1,"2026-09-03":2,"2026-09-22":2,"2026-09-23":2,"2026-09-24":4,"2026-09-28":7,"2026-09-29":3,"2026-10-08":7,"2026-10-09":4,"2026-10-10":4,"2026-10-12":8,"2026-10-13":3,"2026-10-15":10,"2026-10-16":18,"2026-10-19":2},"weekly":{"2026-W34":3,"2026-W35":1,"2026-W36":3,"2026-W39":8,"2026-W40":10,"2026-W41":15,"2026-W42":39,"2026-W43":2},"monthly":{"2026-08":5,"2026-09":20,"2026-10":56}},"unpriced_usage_periods":{"daily":{},"weekly":{},"monthly":{}},"model_periods":{"daily":{"2026-09-28":{"GPT-6 Luna":0.794868},"2026-09-29":{"GPT-6 Luna":0.5780959999999999},"2026-10-08":{"GPT-6 Luna":1.8692734999999998},"2026-10-10":{"GPT-6 Luna":2.748202},"2026-10-12":{"GPT-6 Luna":2.372666},"2026-10-13":{"GPT-6 Luna":0.731675},"2026-10-15":{"GPT-6 Luna":52.5943415},"2026-10-16":{"GPT-6 Luna":16.1892125},"2026-10-19":{"GPT-6 Luna":16.0761875}},"weekly":{"2026-W40":{"GPT-6 Luna":1.3729639999999999},"2026-W41":{"GPT-6 Luna":4.6174755},"2026-W42":{"GPT-6 Luna":71.887895},"2026-W43":{"GPT-6 Luna":16.0761875}},"monthly":{"2026-09":{"GPT-6 Luna":1.3729639999999999},"2026-10":{"GPT-6 Luna":92.581558}}},"cache_hits":0,"files_reparsed":152,"generated_at":"2026-10-19T18:20:22.030232+08:00","current_usage":{"today":{"label":"2026-10-19","value":16.0761875,"unpriced_records":0},"month":{"label":"2026-10","value":92.581558,"unpriced_records":0}}}</script>
     <script>
         const data = JSON.parse(document.getElementById("report-data").textContent);
         const labels = { daily: "每日", weekly: "每周", monthly: "每月" };
         const colors = ["#ff3d8e", "#e47758", "#568ba3", "#b69a3b", "#6d8e64", "#c06b7b"];
-        const state = { period: "daily", model: "*", bucket: null };
+        const chartColors = { credits: "#ff3d8e", sessions: "#a855f7" };
+        const state = { period: "daily", model: "*", bucket: null, month: "" };
         const byId = (id) => document.getElementById(id);
         const number = (value) => new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 6 }).format(value || 0);
+        const creditsNumber = (value) => new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
         const sum = (values) => Object.values(values || {}).reduce((total, value) => total + value, 0);
-        const bucketNames = () => [...new Set([
+        const allBucketNames = () => [...new Set([
             ...Object.keys(data.periods[state.period] || {}),
             ...Object.keys(data.session_periods?.[state.period] || {})
         ])].sort();
+        const availableMonths = () => [...new Set([
+            ...Object.keys(data.periods.daily || {}),
+            ...Object.keys(data.session_periods?.daily || {})
+        ].map((bucket) => bucket.slice(0, 7)))].sort();
+        const bucketNames = () => {
+            const buckets = allBucketNames();
+            return state.period === "daily" && state.month
+                ? buckets.filter((bucket) => bucket.startsWith(`${state.month}-`))
+                : buckets;
+        };
         const modelNames = () => {
             const names = new Set(Object.keys(data.undated_by_model || {}));
             for (const buckets of Object.values(data.model_periods[state.period] || {})) {
@@ -145,63 +186,176 @@
             }
             select.value = state.model;
         }
+        function populateMonthFilter() {
+            const select = byId("month-filter");
+            const months = availableMonths();
+            if (!months.includes(state.month)) state.month = months.at(-1) || "";
+            select.replaceChildren();
+            for (const month of months) {
+                const option = document.createElement("option");
+                option.value = month;
+                option.textContent = month;
+                select.append(option);
+            }
+            select.value = state.month;
+            select.disabled = months.length === 0;
+            byId("month-filter-label").hidden = state.period !== "daily";
+        }
         function modelBreakdown() {
             const result = {};
             const buckets = data.model_periods[state.period] || {};
-            if (state.bucket) return { ...(buckets[state.bucket] || {}) };
-            for (const models of Object.values(buckets)) {
-                for (const [name, amount] of Object.entries(models)) result[name] = (result[name] || 0) + amount;
+            if (state.bucket) Object.assign(result, buckets[state.bucket] || {});
+            else {
+                for (const bucket of bucketNames()) {
+                    const models = buckets[bucket] || {};
+                    for (const [name, amount] of Object.entries(models)) result[name] = (result[name] || 0) + amount;
+                }
             }
-            return result;
+            return state.model === "*" ? result : (state.model in result ? { [state.model]: result[state.model] } : {});
         }
-        function renderTables() {
-            const periodRows = byId("period-rows");
-            periodRows.replaceChildren();
-            const buckets = bucketNames().slice().reverse();
-            byId("period-empty").hidden = buckets.length > 0;
+        function svgElement(name, attributes = {}) {
+            const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+            for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+            return element;
+        }
+        function showTooltip(bucket, clientX, clientY) {
+            const tooltip = byId("chart-tooltip");
+            const frame = byId("period-chart-frame");
+            const modelLabel = state.model === "*" ? "全部模型" : state.model;
+            const sessionValue = data.session_periods?.[state.period]?.[bucket] || 0;
+            const table = document.createElement("table");
+            table.className = "chart-tooltip-table";
+            const rows = [
+                ["周期", bucket],
+                ["Credits", creditsNumber(selectedAmount(bucket))],
+                ["会话数（全部模型）", number(sessionValue)],
+                ["模型筛选", modelLabel],
+            ];
+            for (const [label, value] of rows) {
+                const row = table.insertRow();
+                const heading = document.createElement("th");
+                heading.scope = "row";
+                heading.textContent = label;
+                const cell = row.insertCell();
+                cell.textContent = value;
+                row.prepend(heading);
+            }
+            tooltip.replaceChildren(table);
+            tooltip.hidden = false;
+            const bounds = frame.getBoundingClientRect();
+            tooltip.style.left = `${Math.min(Math.max(clientX - bounds.left + 12, 6), frame.clientWidth - tooltip.offsetWidth - 6)}px`;
+            tooltip.style.top = `${Math.min(Math.max(clientY - bounds.top + 12, 6), frame.clientHeight - tooltip.offsetHeight - 6)}px`;
+        }
+        function renderPeriodChart() {
+            const chart = byId("period-chart");
+            const buckets = bucketNames();
+            const empty = byId("period-empty");
+            chart.replaceChildren();
+            empty.hidden = buckets.length > 0;
+            const width = Math.max(640, buckets.length * 88 + 100, chart.parentElement.clientWidth);
+            const height = 340;
+            const margin = { top: 20, right: 58, bottom: 52, left: 62 };
+            const plotWidth = width - margin.left - margin.right;
+            const plotHeight = height - margin.top - margin.bottom;
+            const creditPlotHeight = plotHeight * 0.62;
+            const sessionPlotHeight = plotHeight - creditPlotHeight;
+            const baselineY = margin.top + creditPlotHeight;
             const creditMaximum = Math.max(...buckets.map(selectedAmount), 0);
             const sessionMaximum = Math.max(...buckets.map((bucket) => data.session_periods?.[state.period]?.[bucket] || 0), 0);
-            const appendBar = (cell, value, maximum) => {
-                const track = document.createElement("div"); track.className = "bar-track period-bar-track";
-                const fill = document.createElement("div"); fill.className = "bar-fill";
-                fill.style.width = `${maximum ? value / maximum * 100 : 0}%`;
-                track.append(fill); cell.append(track);
-            };
-            for (const bucket of buckets) {
-                const row = document.createElement("tr");
-                row.dataset.bucket = bucket;
-                if (state.bucket === bucket) row.classList.add("selected");
-                row.tabIndex = 0;
+            const creditScale = creditMaximum || 1;
+            const sessionScale = sessionMaximum || 1;
+            const step = plotWidth / Math.max(buckets.length, 1);
+            chart.setAttribute("viewBox", `0 0 ${width} ${height}`);
+            chart.setAttribute("width", width);
+            chart.setAttribute("height", height);
+            chart.style.width = `${width}px`;
+            chart.setAttribute("aria-label", `${labels[state.period]} Credits 与会话数，X 轴日期共用，Credits 向上，会话数向下，分别独立刻度`);
+            for (let tick = 0; tick <= 2; tick += 1) {
+                const creditY = margin.top + creditPlotHeight * tick / 2;
+                const sessionY = baselineY + sessionPlotHeight * tick / 2;
+                chart.append(svgElement("line", { x1: margin.left, x2: width - margin.right, y1: creditY, y2: creditY, class: "chart-gridline" }));
+                if (tick > 0) chart.append(svgElement("line", { x1: margin.left, x2: width - margin.right, y1: sessionY, y2: sessionY, class: "chart-gridline" }));
+                const creditTick = creditScale * (2 - tick) / 2;
+                const leftLabel = svgElement("text", { x: margin.left - 8, y: creditY + 4, "text-anchor": "end", class: "chart-axis" });
+                leftLabel.textContent = creditsNumber(creditTick);
+                chart.append(leftLabel);
+                const sessionTick = sessionScale * tick / 2;
+                const rightLabel = svgElement("text", { x: width - margin.right + 8, y: sessionY + 4, "text-anchor": "start", class: "chart-axis" });
+                rightLabel.textContent = number(sessionTick);
+                chart.append(rightLabel);
+            }
+            const creditAxisY = margin.top + creditPlotHeight / 2;
+            const leftTitle = svgElement("text", { x: 14, y: creditAxisY, transform: `rotate(-90 14 ${creditAxisY})`, "text-anchor": "middle", class: "chart-axis" });
+            leftTitle.textContent = "Credits";
+            const sessionAxisY = baselineY + sessionPlotHeight / 2;
+            const rightTitle = svgElement("text", { x: width - 12, y: sessionAxisY, transform: `rotate(90 ${width - 12} ${sessionAxisY})`, "text-anchor": "middle", class: "chart-axis" });
+            rightTitle.textContent = "会话数";
+            chart.append(leftTitle, rightTitle);
+            buckets.forEach((bucket, index) => {
+                const center = margin.left + step * (index + 0.5);
                 const creditValue = selectedAmount(bucket);
                 const sessionValue = data.session_periods?.[state.period]?.[bucket] || 0;
-                row.setAttribute("aria-label", `${bucket}: ${number(creditValue)} Credits`);
-                const period = document.createElement("td"); period.textContent = bucket;
-                const amount = document.createElement("td"); amount.className = "amount";
-                amount.append(document.createTextNode(number(creditValue))); appendBar(amount, creditValue, creditMaximum);
-                const sessions = document.createElement("td"); sessions.className = "amount";
-                sessions.append(document.createTextNode(number(sessionValue))); appendBar(sessions, sessionValue, sessionMaximum);
-                row.append(period, amount, sessions);
+                const barWidth = Math.min(step * 0.8, 48, Math.max(12, 96 / Math.sqrt(buckets.length)));
+                const barX = center - barWidth / 2;
+                const group = svgElement("g", {
+                    class: `chart-group${state.bucket === bucket ? " selected" : ""}`,
+                    "data-bucket": bucket,
+                    tabindex: "0",
+                    role: "button",
+                    "aria-pressed": String(state.bucket === bucket),
+                    "aria-label": `${bucket}，${creditsNumber(creditValue)} Credits，${number(sessionValue)} 个会话`,
+                    "aria-describedby": "chart-tooltip",
+                });
+                group.append(svgElement("rect", { x: center - step / 2 + 2, y: margin.top, width: Math.max(step - 4, 1), height: plotHeight + 36, class: "chart-hit" }));
+                const creditHeight = creditValue / creditScale * creditPlotHeight;
+                const sessionHeight = sessionValue / sessionScale * sessionPlotHeight;
+                group.append(svgElement("rect", {
+                    x: barX, y: baselineY - creditHeight,
+                    width: barWidth, height: creditHeight, fill: chartColors.credits, class: "chart-bar",
+                    "data-series": "credits", "data-value": creditValue,
+                    "aria-label": `${creditsNumber(creditValue)} Credits`,
+                }));
+                group.append(svgElement("rect", {
+                    x: barX, y: baselineY,
+                    width: barWidth, height: sessionHeight, fill: chartColors.sessions, class: "chart-bar",
+                    "data-series": "sessions", "data-value": sessionValue,
+                    "aria-label": `${number(sessionValue)} 个会话`,
+                }));
+                const periodLabel = svgElement("text", { x: center, y: height - 18, "text-anchor": "middle", class: "chart-period" });
+                periodLabel.textContent = bucket;
+                group.append(periodLabel);
                 const activate = () => { state.bucket = state.bucket === bucket ? null : bucket; render(); };
-                row.addEventListener("click", activate);
-                row.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(); } });
-                periodRows.append(row);
-            }
+                group.addEventListener("click", activate);
+                group.addEventListener("keydown", (event) => {
+                    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(); }
+                });
+                group.addEventListener("pointerenter", (event) => showTooltip(bucket, event.clientX, event.clientY));
+                group.addEventListener("pointermove", (event) => showTooltip(bucket, event.clientX, event.clientY));
+                group.addEventListener("pointerleave", () => { byId("chart-tooltip").hidden = true; });
+                group.addEventListener("focus", () => {
+                    const bounds = group.getBoundingClientRect();
+                    showTooltip(bucket, bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+                });
+                group.addEventListener("blur", () => { byId("chart-tooltip").hidden = true; });
+                chart.append(group);
+            });
+        }
+        function renderModelChart() {
             const models = modelBreakdown();
-            const modelRows = byId("model-rows");
-            modelRows.replaceChildren();
+            const modelChart = byId("model-chart");
+            modelChart.replaceChildren();
             const entries = Object.entries(models).sort((a, b) => b[1] - a[1]);
             byId("model-empty").hidden = entries.length > 0;
             const maximum = Math.max(...entries.map((entry) => entry[1]), 0);
             for (const [index, [name, amount]] of entries.entries()) {
-                const row = document.createElement("tr");
-                const model = document.createElement("td"); model.className = "model-name"; model.textContent = name;
-                const value = document.createElement("td"); value.className = "amount model-value";
-                value.append(document.createTextNode(number(amount)));
-                const track = document.createElement("div"); track.className = "bar-track";
-                const fill = document.createElement("div"); fill.className = "bar-fill";
+                const row = document.createElement("div"); row.className = "model-chart-row"; row.setAttribute("role", "listitem");
+                const model = document.createElement("span"); model.className = "model-chart-label"; model.textContent = name;
+                const track = document.createElement("div"); track.className = "model-chart-track"; track.setAttribute("aria-hidden", "true");
+                const fill = document.createElement("div"); fill.className = "model-chart-bar";
                 fill.style.width = `${maximum ? amount / maximum * 100 : 0}%`;
                 fill.style.background = colors[index % colors.length];
-                track.append(fill); value.append(track); row.append(model, value); modelRows.append(row);
+                const value = document.createElement("span"); value.className = "model-chart-value"; value.textContent = `${creditsNumber(amount)} Credits`;
+                track.append(fill); row.append(model, track, value); modelChart.append(row);
             }
         }
         function renderMetrics() {
@@ -210,32 +364,42 @@
             const sessionTotal = buckets.reduce((count, bucket) => count + (data.session_periods?.[state.period]?.[bucket] || 0), 0);
             const peak = buckets.map((bucket) => ({ bucket, value: selectedAmount(bucket) })).sort((a, b) => b.value - a.value)[0];
             const current = data.current_usage;
-            byId("today-label").textContent = `今日用量 · ${current.today.label}`;
-            byId("today-value").textContent = number(current.today.value);
-            byId("month-label").textContent = `本月用量 · ${current.month.label}`;
-            byId("month-value").textContent = number(current.month.value);
-            byId("total-value").textContent = number(total);
+            byId("today-label").textContent = `今日用量 · ${current.today.label}${current.today.unpriced_records ? `（${number(current.today.unpriced_records)} 条 Credits 未知）` : ""}`;
+            byId("today-value").textContent = current.today.value === null ? "—" : creditsNumber(current.today.value);
+            byId("today-value").title = current.today.unpriced_records
+                ? `有 ${number(current.today.unpriced_records)} 条用量记录未提供可确认的 Credits 数值。`
+                : "";
+            byId("month-label").textContent = `本月用量 · ${current.month.label}${current.month.unpriced_records ? `（${number(current.month.unpriced_records)} 条 Credits 未知）` : ""}`;
+            byId("month-value").textContent = current.month.value === null ? "—" : creditsNumber(current.month.value);
+            byId("month-value").title = current.month.unpriced_records
+                ? `有 ${number(current.month.unpriced_records)} 条用量记录未提供可确认的 Credits 数值。`
+                : "";
+            byId("total-value").textContent = creditsNumber(total);
             byId("total-label").textContent = state.model === "*" ? `${labels[state.period]}区间用量` : "筛选模型用量";
             byId("session-count").textContent = number(sessionTotal);
             byId("peak-value").textContent = peak?.value ? peak.bucket : "-";
-            byId("peak-note").textContent = peak?.value ? `${number(peak.value)} Credits` : "Credits";
+            byId("peak-note").textContent = peak?.value ? `${creditsNumber(peak.value)} Credits` : "Credits";
             byId("model-count").textContent = modelNames().length;
-            byId("undated-value").textContent = number(data.undated_credits);
+            byId("undated-value").textContent = creditsNumber(data.undated_credits);
             byId("clear-selection").hidden = !state.bucket;
         }
         function render() {
             for (const button of document.querySelectorAll("[data-period]")) {
                 button.setAttribute("aria-pressed", String(button.dataset.period === state.period));
             }
+            populateMonthFilter();
             populateModelFilter();
             renderMetrics();
-            renderTables();
+            renderPeriodChart();
+            renderModelChart();
         }
         document.querySelectorAll("[data-period]").forEach((button) => button.addEventListener("click", () => {
             state.period = button.dataset.period; state.bucket = null; render();
         }));
+        byId("month-filter").addEventListener("change", (event) => { state.month = event.target.value; state.bucket = null; render(); });
         byId("model-filter").addEventListener("change", (event) => { state.model = event.target.value; render(); });
         byId("clear-selection").addEventListener("click", () => { state.bucket = null; render(); });
+        window.addEventListener("resize", renderPeriodChart);
         byId("footer").textContent = `扫描 ${data.files_scanned} 个文件 · ${data.credit_records} 条有效记录 · ${data.malformed_records} 条无效记录 · Credits 字段：${(data.credit_fields || []).join(", ") || "未发现"}`;
         render();
     </script>

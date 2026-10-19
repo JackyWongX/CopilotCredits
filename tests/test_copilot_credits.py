@@ -42,8 +42,9 @@ class CopilotCreditsTests(unittest.TestCase):
             )
 
             with patch.dict(os.environ, {"APPDATA": directory}):
-                paths = copilot_credits.discover_default_paths()
-                result = copilot_credits.analyze_paths(paths)
+                with patch.object(copilot_credits.Path, "home", return_value=Path(directory)):
+                    paths = copilot_credits.discover_default_paths()
+                    result = copilot_credits.analyze_paths(paths)
 
         local_day = copilot_credits.parse_timestamp(timestamp).date()
         iso_year, iso_week, _ = local_day.isocalendar()
@@ -51,6 +52,151 @@ class CopilotCreditsTests(unittest.TestCase):
         self.assertEqual(result["status"], "credits_found")
         self.assertEqual(result["periods"]["daily"], {local_day.isoformat(): 1.25})
         self.assertEqual(result["periods"]["monthly"], {local_day.strftime("%Y-%m"): 1.25})
+
+    def test_default_scan_includes_copilot_agent_session_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            sessions = home / ".copilot" / "session-state"
+            sessions.mkdir(parents=True)
+            with patch.dict(os.environ, {"APPDATA": str(home)}):
+                with patch.object(copilot_credits.Path, "home", return_value=home):
+                    paths = copilot_credits.discover_default_paths()
+
+        self.assertIn(sessions, paths)
+
+    def test_agent_usage_credits_come_from_nano_aiu_not_per_request_cost(self):
+        with tempfile.TemporaryDirectory() as directory:
+            sessions = Path(directory) / "session-state"
+            sessions.mkdir()
+            for session_id, nano_aiu in (("session-one", 1_000_000_000), ("session-two", 1_500_000_000)):
+                events = (
+                    {
+                        "type": "session.start",
+                        "timestamp": "2026-10-19T09:00:00Z",
+                        "data": {"sessionId": session_id},
+                    },
+                    {
+                        "type": "session.usage_record",
+                        "timestamp": "2026-10-19T09:05:00Z",
+                        "data": {
+                            "usage": {
+                                "model": "gpt-6-luna",
+                                "modelDisplayName": "GPT-6 Luna",
+                                "cost": 1,
+                                "aiCreditsStatus": "complete",
+                                "inputTokens": 1000,
+                                "copilotUsage": {"totalNanoAiu": nano_aiu},
+                            }
+                        },
+                    },
+                )
+                (sessions / f"{session_id}.jsonl").write_text(
+                    "\n".join(json.dumps(event) for event in events),
+                    encoding="utf-8",
+                )
+
+            result = copilot_credits.analyze_paths([sessions])
+
+        self.assertEqual(result["periods"]["daily"], {"2026-10-19": 2.5})
+        self.assertEqual(
+            result["model_periods"]["daily"],
+            {"2026-10-19": {"GPT-6 Luna": 2.5}},
+        )
+        self.assertEqual(result["session_periods"]["daily"], {"2026-10-19": 2})
+        self.assertEqual(result["credit_fields"], ["usage.copilotUsage.totalNanoAiu"])
+        self.assertEqual(result["credit_records"], 2)
+        self.assertEqual(
+            result["unpriced_usage_periods"]["daily"],
+            {},
+        )
+        self.assertIn("Nano AIU", result["message"])
+
+    def test_incomplete_agent_usage_cost_is_not_counted_as_credits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "events.jsonl"
+            source.write_text(
+                json.dumps(
+                    {
+                        "type": "session.usage_record",
+                        "timestamp": "2026-10-19T09:05:00Z",
+                        "data": {"usage": {"cost": 1, "aiCreditsStatus": "pending"}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = copilot_credits.analyze_paths([source])
+
+        self.assertEqual(result["status"], "no_credit_fields")
+        self.assertEqual(result["periods"]["daily"], {})
+
+    def test_completed_agent_usage_without_nano_aiu_is_reported_as_unpriced(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "events.jsonl"
+            source.write_text(
+                json.dumps(
+                    {
+                        "type": "session.usage_record",
+                        "timestamp": "2026-10-19T09:05:00Z",
+                        "data": {
+                            "usage": {
+                                "cost": 1,
+                                "aiCreditsStatus": "complete",
+                                "copilotUsage": {},
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = copilot_credits.analyze_paths([source])
+
+        self.assertEqual(result["periods"]["daily"], {})
+        self.assertEqual(
+            result["unpriced_usage_periods"]["daily"],
+            {"2026-10-19": 1},
+        )
+
+    def test_task_credits_match_response_details_after_aggregating_calls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            sessions = Path(directory) / "session-state"
+            sessions.mkdir()
+            events = [
+                {
+                    "type": "session.start",
+                    "timestamp": "2026-10-19T10:05:24Z",
+                    "data": {"sessionId": "task-session"},
+                }
+            ]
+            for nano_aiu in [162_482_607] * 13 + [162_482_609]:
+                events.append(
+                    {
+                        "type": "session.usage_record",
+                        "timestamp": "2026-10-19T10:06:00Z",
+                        "data": {
+                            "usage": {
+                                "modelDisplayName": "GPT-6 Luna",
+                                "cost": 1,
+                                "aiCreditsStatus": "complete",
+                                "copilotUsage": {"totalNanoAiu": nano_aiu},
+                            }
+                        },
+                    }
+                )
+            (sessions / "task-session.jsonl").write_text(
+                "\n".join(json.dumps(event) for event in events),
+                encoding="utf-8",
+            )
+
+            result = copilot_credits.analyze_paths([sessions])
+
+        self.assertEqual(result["periods"]["daily"], {"2026-10-19": 2.2747565})
+        self.assertEqual(
+            result["model_periods"]["daily"],
+            {"2026-10-19": {"GPT-6 Luna": 2.2747565}},
+        )
+        self.assertEqual(result["session_periods"]["daily"], {"2026-10-19": 1})
 
     def test_session_counts_use_creation_date_and_count_each_file_once(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -78,6 +224,7 @@ class CopilotCreditsTests(unittest.TestCase):
         self.assertEqual(result["session_periods"]["weekly"], {"2026-W42": 2})
         self.assertEqual(result["periods"]["weekly"], {"2026-W42": 3.5})
         self.assertIn("每周", copilot_credits.format_table(result))
+        self.assertIn("3.50", copilot_credits.format_table(result))
         self.assertIn("2 个会话", copilot_credits.format_table(result))
 
     def test_copilot_auto_is_attributed_to_gpt6_luna(self):
@@ -129,8 +276,33 @@ class CopilotCreditsTests(unittest.TestCase):
             datetime(2026, 10, 16, 12).astimezone(),
         )
 
-        self.assertEqual(current["today"], {"label": "2026-10-16", "value": 2.5})
-        self.assertEqual(current["month"], {"label": "2026-10", "value": 12.5})
+        self.assertEqual(
+            current["today"],
+            {"label": "2026-10-16", "value": 2.5, "unpriced_records": 0},
+        )
+        self.assertEqual(
+            current["month"],
+            {"label": "2026-10", "value": 12.5, "unpriced_records": 0},
+        )
+
+    def test_current_usage_is_unknown_when_logs_have_unpriced_usage(self):
+        result = {
+            "periods": {"daily": {}, "monthly": {}},
+            "unpriced_usage_periods": {
+                "daily": {"2026-10-16": 2},
+                "monthly": {"2026-10": 2},
+            },
+        }
+
+        current = copilot_credits._current_usage(
+            result,
+            datetime(2026, 10, 16, 12).astimezone(),
+        )
+
+        self.assertIsNone(current["today"]["value"])
+        self.assertEqual(current["today"]["unpriced_records"], 2)
+        self.assertIsNone(current["month"]["value"])
+        self.assertEqual(current["month"]["unpriced_records"], 2)
 
     def test_jsonl_aggregates_daily_iso_week_and_month_and_skips_bad_lines(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -259,12 +431,48 @@ class CopilotCreditsTests(unittest.TestCase):
 
         self.assertIn('id="period-control"', html)
         self.assertIn('id="model-filter"', html)
+        self.assertIn('id="month-filter"', html)
+        self.assertIn("const availableMonths = () =>", html)
+        self.assertIn("Object.keys(data.periods.daily || {})", html)
+        self.assertIn("state.period === \"daily\" && state.month", html)
         self.assertNotIn('<article class="metric">', html)
         self.assertIn('<strong class="metric-value" id="today-value">', html)
         self.assertIn('<strong class="metric-value" id="month-value">', html)
-        self.assertNotIn('id="trend-chart"', html)
-        self.assertNotIn('id="chart-tooltip"', html)
-        self.assertNotIn("Credits 趋势", html)
+        self.assertIn('id="period-chart"', html)
+        self.assertIn('const chartColors = { credits: "#ff3d8e", sessions: "#a855f7" };', html)
+        self.assertIn("Math.max(640, buckets.length * 88 + 100, chart.parentElement.clientWidth)", html)
+        self.assertIn("window.addEventListener(\"resize\", renderPeriodChart);", html)
+        self.assertIn('id="chart-tooltip"', html)
+        self.assertIn('id="model-chart"', html)
+        self.assertIn('const creditsNumber = (value) => new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })', html)
+        self.assertIn('data-series": "credits"', html)
+        self.assertIn('data-series": "sessions"', html)
+        self.assertIn('data-value": creditValue', html)
+        self.assertIn('data-value": sessionValue', html)
+        self.assertIn("function showTooltip(bucket, clientX, clientY)", html)
+        self.assertIn(".chart-tooltip-table { width: 100%; border-collapse: collapse; }", html)
+        self.assertIn(".chart-tooltip-table td { max-width: 210px; font-variant-numeric: tabular-nums; text-align: left;", html)
+        self.assertIn('table.className = "chart-tooltip-table";', html)
+        self.assertIn('["Credits", creditsNumber(selectedAmount(bucket))]', html)
+        self.assertIn('["会话数（全部模型）", number(sessionValue)]', html)
+        self.assertIn('["模型筛选", modelLabel]', html)
+        self.assertIn("cell.textContent = value;", html)
+        self.assertIn("const creditPlotHeight = plotHeight * 0.62;", html)
+        self.assertIn("const sessionPlotHeight = plotHeight - creditPlotHeight;", html)
+        self.assertIn("const baselineY = margin.top + creditPlotHeight;", html)
+        self.assertIn("const creditHeight = creditValue / creditScale * creditPlotHeight;", html)
+        self.assertIn("const sessionHeight = sessionValue / sessionScale * sessionPlotHeight;", html)
+        self.assertIn("const barWidth = Math.min(step * 0.8, 48, Math.max(12, 96 / Math.sqrt(buckets.length)));", html)
+        self.assertIn("const barX = center - barWidth / 2;", html)
+        self.assertIn("x: barX, y: baselineY - creditHeight,", html)
+        self.assertIn("x: barX, y: baselineY,", html)
+        self.assertIn("direction: ltr; width: 100%;", html)
+        self.assertIn('role: "button"', html)
+        self.assertIn('event.key === "Enter" || event.key === " "', html)
+        self.assertIn('row.className = "model-chart-row"', html)
+        self.assertIn('value.className = "model-chart-value"', html)
+        self.assertIn(".model-chart-track { grid-column: 1 / -1; grid-row: 2;", html)
+        self.assertIn(".model-chart-value { grid-column: 2; grid-row: 1;", html)
         self.assertNotIn('class="masthead"', html)
         self.assertNotIn('id="status"', html)
         self.assertNotIn('<h2>周期明细</h2>', html)
@@ -272,16 +480,22 @@ class CopilotCreditsTests(unittest.TestCase):
         self.assertIn('id="clear-selection"', html)
         self.assertIn('data-period="weekly"', html)
         self.assertIn('"session_periods"', html)
-        self.assertIn(".period-bar-track { display: flex; justify-content: flex-end; }", html)
-        self.assertIn("const creditMaximum = Math.max(...buckets.map(selectedAmount), 0);", html)
-        self.assertIn("const sessionMaximum = Math.max(...buckets.map((bucket) => data.session_periods?.[state.period]?.[bucket] || 0), 0);", html)
-        self.assertIn('track.className = "bar-track period-bar-track"', html)
-        self.assertIn("maximum ? value / maximum * 100 : 0", html)
+        self.assertNotIn('id="period-rows"', html)
+        self.assertNotIn('id="model-rows"', html)
+        self.assertNotIn('byId("model-rows")', html)
+        self.assertNotIn("<table>", html)
+        self.assertNotIn("function renderTables()", html)
         self.assertIn("#ff3d8e", html)
         self.assertIn('"current_usage"', html)
+        self.assertIn('current.today.value === null ? "—" : creditsNumber(current.today.value)', html)
+        self.assertIn('current.month.value === null ? "—" : creditsNumber(current.month.value)', html)
         self.assertIn('"model_periods"', html)
         self.assertNotIn(unsafe_model, html)
         self.assertIn("\\u003c/script\\u003e", html)
+
+    def test_credit_display_rounds_half_up_to_two_decimal_places(self):
+        self.assertEqual(copilot_credits._format_credits(1.005), "1.01")
+        self.assertEqual(copilot_credits._format_credits(2.999), "3.00")
 
     def test_main_writes_report_then_opens_browser(self):
         with tempfile.TemporaryDirectory() as directory:
