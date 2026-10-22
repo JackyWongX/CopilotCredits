@@ -64,7 +64,7 @@ MODEL_ALIASES = {
     "auto": "GPT-6 Luna",
     "gpt6luna": "GPT-6 Luna",
 }
-CACHE_VERSION = 5
+CACHE_VERSION = 6
 CACHE_FILENAME = "index.json"
 AGENT_USAGE_EVENT = "session.usage_record"
 NANO_AIU_PER_CREDIT = Decimal("1000000000")
@@ -327,6 +327,7 @@ def _file_contribution(path: Path) -> dict[str, Any]:
         "weekly": defaultdict(int),
         "monthly": defaultdict(int),
     }
+    undated_unpriced_usage_records = 0
     field_names: set[str] = set()
     field_count = 0
     record_count = 0
@@ -349,11 +350,14 @@ def _file_contribution(path: Path) -> dict[str, Any]:
     for document in documents:
         for record, timestamp, model in _walk_records(document):
             if record.get("type") == "session.usage_record":
-                if _has_unpriced_agent_usage(record) and timestamp is not None:
-                    day = timestamp.date()
-                    unpriced_usage_periods["daily"][day.isoformat()] += 1
-                    unpriced_usage_periods["weekly"][_week_key(day)] += 1
-                    unpriced_usage_periods["monthly"][day.strftime("%Y-%m")] += 1
+                if _has_unpriced_agent_usage(record):
+                    if timestamp is None:
+                        undated_unpriced_usage_records += 1
+                    else:
+                        day = timestamp.date()
+                        unpriced_usage_periods["daily"][day.isoformat()] += 1
+                        unpriced_usage_periods["weekly"][_week_key(day)] += 1
+                        unpriced_usage_periods["monthly"][day.strftime("%Y-%m")] += 1
             for field_name, amount in _credit_values(record):
                 field_names.add(field_name)
                 field_count += 1
@@ -390,6 +394,7 @@ def _file_contribution(path: Path) -> dict[str, Any]:
         "unpriced_usage_periods": {
             period: dict(groups) for period, groups in unpriced_usage_periods.items()
         },
+        "undated_unpriced_usage_records": undated_unpriced_usage_records,
         "model_periods": {
             period: {
                 key: {model: str(value) for model, value in models.items()}
@@ -450,6 +455,7 @@ def _valid_cache_entry(entry: Any, size: int, mtime_ns: int) -> bool:
             "field_count",
             "record_count",
             "undated_records",
+            "undated_unpriced_usage_records",
         ):
             if not isinstance(contribution[key], int) or contribution[key] < 0:
                 return False
@@ -548,6 +554,7 @@ def analyze_paths(paths: Iterable[Path], cache_dir: Path | None = None) -> dict[
     }
     field_names: set[str] = set()
     field_count = record_count = undated_records = malformed_count = 0
+    undated_unpriced_usage_records = 0
     undated_total = Decimal(0)
     undated_by_model: dict[str, Decimal] = defaultdict(Decimal)
     for contribution in contributions:
@@ -555,6 +562,7 @@ def analyze_paths(paths: Iterable[Path], cache_dir: Path | None = None) -> dict[
         field_names.update(contribution["field_names"])
         field_count += contribution["field_count"]
         record_count += contribution["record_count"]
+        undated_unpriced_usage_records += contribution["undated_unpriced_usage_records"]
         undated_total += Decimal(contribution["undated_total"])
         undated_records += contribution["undated_records"]
         for model, amount in contribution["undated_by_model"].items():
@@ -589,13 +597,18 @@ def analyze_paths(paths: Iterable[Path], cache_dir: Path | None = None) -> dict[
         message = "已将完整用量记录中的 Nano AIU 汇总并按 10 亿:1 折算为 Credits。"
         if undated_records:
             message += " 部分 Credits 记录缺少可解析时间，已单独列出未分组用量。"
-        unpriced_count = sum(unpriced_usage_periods["daily"].values())
-        if unpriced_count:
-            message += f" 另有 {unpriced_count} 条记录缺少 Nano AIU，未计入 Credits。"
     elif undated_records:
         message = "部分 Credits 记录缺少可解析时间，已单独列出未分组用量。"
     else:
         message = "已按日志中明确记录的 Credits 数值汇总。"
+    unpriced_count = sum(unpriced_usage_periods["daily"].values())
+    if unpriced_count:
+        message += f" 另有 {unpriced_count} 条记录缺少 Nano AIU，未计入 Credits。"
+    if undated_unpriced_usage_records:
+        message += (
+            f" 另有 {undated_unpriced_usage_records} 条缺少可解析时间的记录缺少 Nano AIU，"
+            "无法按日期分组。"
+        )
 
     result = {
         "status": status,
@@ -622,6 +635,7 @@ def analyze_paths(paths: Iterable[Path], cache_dir: Path | None = None) -> dict[
             period: dict(sorted(groups.items()))
             for period, groups in unpriced_usage_periods.items()
         },
+        "undated_unpriced_usage_records": undated_unpriced_usage_records,
         "model_periods": {
             period: {
                 key: {model: _json_number(amount) for model, amount in sorted(models.items())}
@@ -650,16 +664,25 @@ def _current_usage(result: dict[str, Any], generated_at: datetime) -> dict[str, 
     unpriced = result.get("unpriced_usage_periods", {})
     today_unpriced = unpriced.get("daily", {}).get(daily_key, 0)
     month_unpriced = unpriced.get("monthly", {}).get(monthly_key, 0)
+    undated_unpriced = result.get("undated_unpriced_usage_records", 0)
     return {
         "today": {
             "label": daily_key,
-            "value": None if today_unpriced else periods["daily"].get(daily_key, 0),
-            "unpriced_records": today_unpriced,
+            "value": (
+                None
+                if today_unpriced or undated_unpriced
+                else periods["daily"].get(daily_key, 0)
+            ),
+            "unpriced_records": today_unpriced + undated_unpriced,
         },
         "month": {
             "label": monthly_key,
-            "value": None if month_unpriced else periods["monthly"].get(monthly_key, 0),
-            "unpriced_records": month_unpriced,
+            "value": (
+                None
+                if month_unpriced or undated_unpriced
+                else periods["monthly"].get(monthly_key, 0)
+            ),
+            "unpriced_records": month_unpriced + undated_unpriced,
         },
     }
 
@@ -677,6 +700,9 @@ def format_table(result: dict[str, Any]) -> str:
         )
     for day, count in result.get("unpriced_usage_periods", {}).get("daily", {}).items():
         lines.append(f"未计价的用量事件: {day} {count} 条（未计入 Credits）")
+    undated_unpriced = result.get("undated_unpriced_usage_records", 0)
+    if undated_unpriced:
+        lines.append(f"未分组的未计价用量事件: {undated_unpriced} 条（日期未知，未计入 Credits）")
     labels = (("daily", "每日"), ("weekly", "每周"), ("monthly", "每月"))
     if result["status"] == "no_credit_fields":
         lines.append(f"扫描文件: {result['files_scanned']}  |  坏记录: {result['malformed_records']}")
@@ -790,6 +816,7 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
         .chart-group:focus .chart-hit, .chart-group:hover .chart-hit, .chart-group.selected .chart-hit { fill: #fff0f6; }
         .chart-hit { fill: transparent; }
         .chart-bar { stroke: var(--paper); stroke-width: 1; }
+        .chart-value { fill: var(--ink); font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--paper); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
         .chart-legend { display: flex; flex-wrap: wrap; gap: 16px; padding-top: 10px; color: var(--muted); font-size: 12px; }
         .legend-item { display: inline-flex; align-items: center; gap: 6px; }
         .legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
@@ -1051,6 +1078,17 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
                     "data-series": "sessions", "data-value": sessionValue,
                     "aria-label": `${number(sessionValue)} 个会话`,
                 }));
+                const creditLabel = svgElement("text", {
+                    x: center, y: Math.max(margin.top - 5, baselineY - creditHeight - 6),
+                    "text-anchor": "middle", class: "chart-value",
+                });
+                creditLabel.textContent = creditsNumber(creditValue);
+                const sessionLabel = svgElement("text", {
+                    x: center, y: baselineY + sessionHeight + 13,
+                    "text-anchor": "middle", class: "chart-value",
+                });
+                sessionLabel.textContent = number(sessionValue);
+                group.append(creditLabel, sessionLabel);
                 const periodLabel = svgElement("text", { x: center, y: height - 18, "text-anchor": "middle", class: "chart-period" });
                 periodLabel.textContent = bucket;
                 group.append(periodLabel);
@@ -1130,7 +1168,7 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
         byId("model-filter").addEventListener("change", (event) => { state.model = event.target.value; render(); });
         byId("clear-selection").addEventListener("click", () => { state.bucket = null; render(); });
         window.addEventListener("resize", renderPeriodChart);
-        byId("footer").textContent = `扫描 ${data.files_scanned} 个文件 · ${data.credit_records} 条有效记录 · ${data.malformed_records} 条无效记录 · Credits 字段：${(data.credit_fields || []).join(", ") || "未发现"}`;
+        byId("footer").textContent = `扫描 ${data.files_scanned} 个文件 · ${data.credit_records} 条有效记录 · ${data.malformed_records} 条无效记录 · 未分组的未计价用量事件 ${number(data.undated_unpriced_usage_records || 0)} 条 · Credits 字段：${(data.credit_fields || []).join(", ") || "未发现"}`;
         render();
     </script>
 </body>

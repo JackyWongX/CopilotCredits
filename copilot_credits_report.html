@@ -60,6 +60,7 @@
         .chart-group:focus .chart-hit, .chart-group:hover .chart-hit, .chart-group.selected .chart-hit { fill: #fff0f6; }
         .chart-hit { fill: transparent; }
         .chart-bar { stroke: var(--paper); stroke-width: 1; }
+        .chart-value { fill: var(--ink); font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--paper); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
         .chart-legend { display: flex; flex-wrap: wrap; gap: 16px; padding-top: 10px; color: var(--muted); font-size: 12px; }
         .legend-item { display: inline-flex; align-items: center; gap: 6px; }
         .legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
@@ -135,7 +136,7 @@
         </div>
         <footer class="footer" id="footer"></footer>
     </main>
-    <script type="application/json" id="report-data">{"status":"credits_found","message":"已将完整用量记录中的 Nano AIU 汇总并按 10 亿:1 折算为 Credits。 部分 Credits 记录缺少可解析时间，已单独列出未分组用量。","files_scanned":152,"malformed_records":0,"credit_fields":["copilotCredits","credits","usage.copilotUsage.totalNanoAiu"],"credit_field_count":175,"credit_records":175,"undated_credits":17.307923499999998,"undated_records":6,"undated_by_model":{"GPT-6 Luna":17.307923499999998},"periods":{"daily":{"2026-09-28":0.794868,"2026-09-29":0.5780959999999999,"2026-10-08":1.8692734999999998,"2026-10-10":2.748202,"2026-10-12":2.372666,"2026-10-13":0.731675,"2026-10-15":52.5943415,"2026-10-16":16.1892125,"2026-10-19":16.0761875},"weekly":{"2026-W40":1.3729639999999999,"2026-W41":4.6174755,"2026-W42":71.887895,"2026-W43":16.0761875},"monthly":{"2026-09":1.3729639999999999,"2026-10":92.581558}},"session_periods":{"daily":{"2026-08-17":1,"2026-08-19":1,"2026-08-20":1,"2026-08-26":1,"2026-08-31":1,"2026-09-03":2,"2026-09-22":2,"2026-09-23":2,"2026-09-24":4,"2026-09-28":7,"2026-09-29":3,"2026-10-08":7,"2026-10-09":4,"2026-10-10":4,"2026-10-12":8,"2026-10-13":3,"2026-10-15":10,"2026-10-16":18,"2026-10-19":2},"weekly":{"2026-W34":3,"2026-W35":1,"2026-W36":3,"2026-W39":8,"2026-W40":10,"2026-W41":15,"2026-W42":39,"2026-W43":2},"monthly":{"2026-08":5,"2026-09":20,"2026-10":56}},"unpriced_usage_periods":{"daily":{},"weekly":{},"monthly":{}},"model_periods":{"daily":{"2026-09-28":{"GPT-6 Luna":0.794868},"2026-09-29":{"GPT-6 Luna":0.5780959999999999},"2026-10-08":{"GPT-6 Luna":1.8692734999999998},"2026-10-10":{"GPT-6 Luna":2.748202},"2026-10-12":{"GPT-6 Luna":2.372666},"2026-10-13":{"GPT-6 Luna":0.731675},"2026-10-15":{"GPT-6 Luna":52.5943415},"2026-10-16":{"GPT-6 Luna":16.1892125},"2026-10-19":{"GPT-6 Luna":16.0761875}},"weekly":{"2026-W40":{"GPT-6 Luna":1.3729639999999999},"2026-W41":{"GPT-6 Luna":4.6174755},"2026-W42":{"GPT-6 Luna":71.887895},"2026-W43":{"GPT-6 Luna":16.0761875}},"monthly":{"2026-09":{"GPT-6 Luna":1.3729639999999999},"2026-10":{"GPT-6 Luna":92.581558}}},"cache_hits":0,"files_reparsed":152,"generated_at":"2026-10-19T18:20:22.030232+08:00","current_usage":{"today":{"label":"2026-10-19","value":16.0761875,"unpriced_records":0},"month":{"label":"2026-10","value":92.581558,"unpriced_records":0}}}</script>
+    <script type="application/json" id="report-data">{"status":"credits_found","message":"已将完整用量记录中的 Nano AIU 汇总并按 10 亿:1 折算为 Credits。 部分 Credits 记录缺少可解析时间，已单独列出未分组用量。","files_scanned":155,"malformed_records":0,"credit_fields":["copilotCredits","credits","usage.copilotUsage.totalNanoAiu"],"credit_field_count":210,"credit_records":210,"undated_credits":17.307923499999998,"undated_records":6,"undated_by_model":{"GPT-6 Luna":17.307923499999998},"periods":{"daily":{"2026-09-28":0.794868,"2026-09-29":0.5780959999999999,"2026-10-08":1.8692734999999998,"2026-10-10":2.748202,"2026-10-12":2.372666,"2026-10-13":0.731675,"2026-10-15":52.5943415,"2026-10-16":16.1892125,"2026-10-19":18.946262,"2026-10-20":0.610298,"2026-10-22":2.62552275},"weekly":{"2026-W40":1.3729639999999999,"2026-W41":4.6174755,"2026-W42":71.887895,"2026-W43":22.18208275},"monthly":{"2026-09":1.3729639999999999,"2026-10":98.68745325}},"session_periods":{"daily":{"2026-08-17":1,"2026-08-19":1,"2026-08-20":1,"2026-08-26":1,"2026-08-31":1,"2026-09-03":2,"2026-09-22":2,"2026-09-23":2,"2026-09-24":4,"2026-09-28":7,"2026-09-29":3,"2026-10-08":7,"2026-10-09":4,"2026-10-10":4,"2026-10-12":8,"2026-10-13":3,"2026-10-15":10,"2026-10-16":18,"2026-10-19":3,"2026-10-20":1,"2026-10-22":1},"weekly":{"2026-W34":3,"2026-W35":1,"2026-W36":3,"2026-W39":8,"2026-W40":10,"2026-W41":15,"2026-W42":39,"2026-W43":5},"monthly":{"2026-08":5,"2026-09":20,"2026-10":59}},"unpriced_usage_periods":{"daily":{},"weekly":{},"monthly":{}},"undated_unpriced_usage_records":0,"model_periods":{"daily":{"2026-09-28":{"GPT-6 Luna":0.794868},"2026-09-29":{"GPT-6 Luna":0.5780959999999999},"2026-10-08":{"GPT-6 Luna":1.8692734999999998},"2026-10-10":{"GPT-6 Luna":2.748202},"2026-10-12":{"GPT-6 Luna":2.372666},"2026-10-13":{"GPT-6 Luna":0.731675},"2026-10-15":{"GPT-6 Luna":52.5943415},"2026-10-16":{"GPT-6 Luna":16.1892125},"2026-10-19":{"GPT-6 Luna":18.946262},"2026-10-20":{"GPT-6 Luna":0.610298},"2026-10-22":{"GPT-6 Luna":2.62552275}},"weekly":{"2026-W40":{"GPT-6 Luna":1.3729639999999999},"2026-W41":{"GPT-6 Luna":4.6174755},"2026-W42":{"GPT-6 Luna":71.887895},"2026-W43":{"GPT-6 Luna":22.18208275}},"monthly":{"2026-09":{"GPT-6 Luna":1.3729639999999999},"2026-10":{"GPT-6 Luna":98.68745325}}},"cache_hits":0,"files_reparsed":155,"generated_at":"2026-10-22T16:45:11.968951+08:00","current_usage":{"today":{"label":"2026-10-22","value":2.62552275,"unpriced_records":0},"month":{"label":"2026-10","value":98.68745325,"unpriced_records":0}}}</script>
     <script>
         const data = JSON.parse(document.getElementById("report-data").textContent);
         const labels = { daily: "每日", weekly: "每周", monthly: "每月" };
@@ -321,6 +322,17 @@
                     "data-series": "sessions", "data-value": sessionValue,
                     "aria-label": `${number(sessionValue)} 个会话`,
                 }));
+                const creditLabel = svgElement("text", {
+                    x: center, y: Math.max(margin.top - 5, baselineY - creditHeight - 6),
+                    "text-anchor": "middle", class: "chart-value",
+                });
+                creditLabel.textContent = creditsNumber(creditValue);
+                const sessionLabel = svgElement("text", {
+                    x: center, y: baselineY + sessionHeight + 13,
+                    "text-anchor": "middle", class: "chart-value",
+                });
+                sessionLabel.textContent = number(sessionValue);
+                group.append(creditLabel, sessionLabel);
                 const periodLabel = svgElement("text", { x: center, y: height - 18, "text-anchor": "middle", class: "chart-period" });
                 periodLabel.textContent = bucket;
                 group.append(periodLabel);
@@ -400,7 +412,7 @@
         byId("model-filter").addEventListener("change", (event) => { state.model = event.target.value; render(); });
         byId("clear-selection").addEventListener("click", () => { state.bucket = null; render(); });
         window.addEventListener("resize", renderPeriodChart);
-        byId("footer").textContent = `扫描 ${data.files_scanned} 个文件 · ${data.credit_records} 条有效记录 · ${data.malformed_records} 条无效记录 · Credits 字段：${(data.credit_fields || []).join(", ") || "未发现"}`;
+        byId("footer").textContent = `扫描 ${data.files_scanned} 个文件 · ${data.credit_records} 条有效记录 · ${data.malformed_records} 条无效记录 · 未分组的未计价用量事件 ${number(data.undated_unpriced_usage_records || 0)} 条 · Credits 字段：${(data.credit_fields || []).join(", ") || "未发现"}`;
         render();
     </script>
 </body>

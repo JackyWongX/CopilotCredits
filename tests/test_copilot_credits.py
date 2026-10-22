@@ -158,6 +158,48 @@ class CopilotCreditsTests(unittest.TestCase):
             {"2026-10-19": 1},
         )
 
+    def test_undated_completed_agent_usage_is_reported_and_makes_current_usage_unknown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "events.jsonl"
+            source.write_text(
+                "\n".join(
+                    json.dumps(
+                        {
+                            "type": "session.usage_record",
+                            **({"timestamp": timestamp} if timestamp is not None else {}),
+                            "data": {
+                                "usage": {
+                                    "aiCreditsStatus": "complete",
+                                    "copilotUsage": {},
+                                }
+                            },
+                        }
+                    )
+                    for timestamp in (None, "not-a-timestamp")
+                ),
+                encoding="utf-8",
+            )
+
+            result = copilot_credits.analyze_paths([source])
+            current = copilot_credits._current_usage(
+                {
+                    **result,
+                    "periods": {
+                        "daily": {"2026-10-16": 2.5},
+                        "monthly": {"2026-10": 12.5},
+                    },
+                },
+                datetime(2026, 10, 16, 12).astimezone(),
+            )
+
+        self.assertEqual(result["undated_unpriced_usage_records"], 2)
+        self.assertIn("2 条缺少可解析时间的记录", result["message"])
+        self.assertIn("未分组的未计价用量事件: 2 条", copilot_credits.format_table(result))
+        self.assertIsNone(current["today"]["value"])
+        self.assertEqual(current["today"]["unpriced_records"], 2)
+        self.assertIsNone(current["month"]["value"])
+        self.assertEqual(current["month"]["unpriced_records"], 2)
+
     def test_task_credits_match_response_details_after_aggregating_calls(self):
         with tempfile.TemporaryDirectory() as directory:
             sessions = Path(directory) / "session-state"
@@ -303,6 +345,25 @@ class CopilotCreditsTests(unittest.TestCase):
         self.assertEqual(current["today"]["unpriced_records"], 2)
         self.assertIsNone(current["month"]["value"])
         self.assertEqual(current["month"]["unpriced_records"], 2)
+
+    def test_current_usage_is_unknown_when_undated_usage_is_unpriced(self):
+        result = {
+            "periods": {
+                "daily": {"2026-10-16": 2.5},
+                "monthly": {"2026-10": 12.5},
+            },
+            "undated_unpriced_usage_records": 1,
+        }
+
+        current = copilot_credits._current_usage(
+            result,
+            datetime(2026, 10, 16, 12).astimezone(),
+        )
+
+        self.assertIsNone(current["today"]["value"])
+        self.assertEqual(current["today"]["unpriced_records"], 1)
+        self.assertIsNone(current["month"]["value"])
+        self.assertEqual(current["month"]["unpriced_records"], 1)
 
     def test_jsonl_aggregates_daily_iso_week_and_month_and_skips_bad_lines(self):
         with tempfile.TemporaryDirectory() as directory:
