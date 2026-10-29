@@ -64,7 +64,7 @@ MODEL_ALIASES = {
     "auto": "GPT-6 Luna",
     "gpt6luna": "GPT-6 Luna",
 }
-CACHE_VERSION = 6
+CACHE_VERSION = 7
 CACHE_FILENAME = "index.json"
 AGENT_USAGE_EVENT = "session.usage_record"
 NANO_AIU_PER_CREDIT = Decimal("1000000000")
@@ -307,6 +307,10 @@ def discover_default_paths() -> list[Path]:
 
 def _file_contribution(path: Path) -> dict[str, Any]:
     documents, malformed = _load_file(path)
+    try:
+        file_timestamp = parse_timestamp(path.stat().st_mtime)
+    except OSError:
+        file_timestamp = None
     totals: dict[str, dict[str, Decimal]] = {
         "daily": defaultdict(Decimal),
         "weekly": defaultdict(Decimal),
@@ -331,6 +335,7 @@ def _file_contribution(path: Path) -> dict[str, Any]:
     field_names: set[str] = set()
     field_count = 0
     record_count = 0
+    file_timestamp_records = 0
     undated_total = Decimal(0)
     undated_records = 0
     undated_by_model: dict[str, Decimal] = defaultdict(Decimal)
@@ -349,6 +354,15 @@ def _file_contribution(path: Path) -> dict[str, Any]:
         session_periods["monthly"][session_day.strftime("%Y-%m")] += 1
     for document in documents:
         for record, timestamp, model in _walk_records(document):
+            if (
+                timestamp is None
+                and file_timestamp is not None
+                and path.suffix.lower() == ".jsonl"
+                and record.get("kind") == "subagent"
+                and "credits" in record
+            ):
+                timestamp = file_timestamp
+                file_timestamp_records += 1
             if record.get("type") == "session.usage_record":
                 if _has_unpriced_agent_usage(record):
                     if timestamp is None:
@@ -383,6 +397,7 @@ def _file_contribution(path: Path) -> dict[str, Any]:
         "field_names": sorted(field_names),
         "field_count": field_count,
         "record_count": record_count,
+        "file_timestamp_records": file_timestamp_records,
         "undated_total": str(undated_total),
         "undated_records": undated_records,
         "undated_by_model": {key: str(value) for key, value in undated_by_model.items()},
@@ -554,6 +569,7 @@ def analyze_paths(paths: Iterable[Path], cache_dir: Path | None = None) -> dict[
     }
     field_names: set[str] = set()
     field_count = record_count = undated_records = malformed_count = 0
+    file_timestamp_records = 0
     undated_unpriced_usage_records = 0
     undated_total = Decimal(0)
     undated_by_model: dict[str, Decimal] = defaultdict(Decimal)
@@ -562,6 +578,7 @@ def analyze_paths(paths: Iterable[Path], cache_dir: Path | None = None) -> dict[
         field_names.update(contribution["field_names"])
         field_count += contribution["field_count"]
         record_count += contribution["record_count"]
+        file_timestamp_records += contribution.get("file_timestamp_records", 0)
         undated_unpriced_usage_records += contribution["undated_unpriced_usage_records"]
         undated_total += Decimal(contribution["undated_total"])
         undated_records += contribution["undated_records"]
@@ -609,6 +626,11 @@ def analyze_paths(paths: Iterable[Path], cache_dir: Path | None = None) -> dict[
             f" 另有 {undated_unpriced_usage_records} 条缺少可解析时间的记录缺少 Nano AIU，"
             "无法按日期分组。"
         )
+    if file_timestamp_records:
+        message += (
+            f" 另有 {file_timestamp_records} 条未带时间戳的子代理 Credits，"
+            "按日志文件修改日期归档。"
+        )
 
     result = {
         "status": status,
@@ -618,6 +640,7 @@ def analyze_paths(paths: Iterable[Path], cache_dir: Path | None = None) -> dict[
         "credit_fields": sorted(field_names),
         "credit_field_count": field_count,
         "credit_records": record_count,
+        "file_timestamp_records": file_timestamp_records,
         "undated_credits": _json_number(undated_total),
         "undated_records": undated_records,
         "undated_by_model": {
@@ -959,16 +982,28 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
             byId("month-filter-label").hidden = state.period !== "daily";
         }
         function modelBreakdown() {
-            const result = {};
+            const result = [];
             const buckets = data.model_periods[state.period] || {};
-            if (state.bucket) Object.assign(result, buckets[state.bucket] || {});
+            const addModels = (models, unknownDate = false) => {
+                for (const [name, amount] of Object.entries(models)) {
+                    if (state.model === "*" || state.model === name) {
+                        result.push([unknownDate ? `${name}（日期未知）` : name, amount]);
+                    }
+                }
+            };
+            if (state.bucket) addModels(buckets[state.bucket] || {});
             else {
+                const totals = {};
                 for (const bucket of bucketNames()) {
                     const models = buckets[bucket] || {};
-                    for (const [name, amount] of Object.entries(models)) result[name] = (result[name] || 0) + amount;
+                    for (const [name, amount] of Object.entries(models)) {
+                        totals[name] = (totals[name] || 0) + amount;
+                    }
                 }
+                addModels(totals);
+                addModels(data.undated_by_model || {}, true);
             }
-            return state.model === "*" ? result : (state.model in result ? { [state.model]: result[state.model] } : {});
+            return result;
         }
         function svgElement(name, attributes = {}) {
             const element = document.createElementNS("http://www.w3.org/2000/svg", name);
@@ -1112,7 +1147,7 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
             const models = modelBreakdown();
             const modelChart = byId("model-chart");
             modelChart.replaceChildren();
-            const entries = Object.entries(models).sort((a, b) => b[1] - a[1]);
+            const entries = models.sort((a, b) => b[1] - a[1]);
             byId("model-empty").hidden = entries.length > 0;
             const maximum = Math.max(...entries.map((entry) => entry[1]), 0);
             for (const [index, [name, amount]] of entries.entries()) {

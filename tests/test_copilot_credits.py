@@ -111,6 +111,41 @@ class CopilotCreditsTests(unittest.TestCase):
         )
         self.assertIn("Nano AIU", result["message"])
 
+    def test_chat_subagent_credits_use_file_modified_date_when_timestamp_is_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "session.jsonl"
+            source.write_text(
+                "\n".join(
+                    json.dumps(record)
+                    for record in (
+                        {
+                            "kind": "subagent",
+                            "modelName": "Claude Haiku 4.5",
+                            "credits": 505.44,
+                        },
+                        {
+                            "kind": "subagent",
+                            "modelName": "GPT-6 Luna",
+                            "credits": 2,
+                            "timestamp": "2026-10-27T09:00:00Z",
+                        },
+                    )
+                ),
+                encoding="utf-8",
+            )
+            file_time = datetime(2026, 10, 28, 12).timestamp()
+            os.utime(source, (file_time, file_time))
+
+            result = copilot_credits.analyze_paths([source])
+
+        self.assertEqual(
+            result["periods"]["daily"],
+            {"2026-10-27": 2, "2026-10-28": 505.44},
+        )
+        self.assertEqual(result["undated_credits"], 0)
+        self.assertEqual(result["file_timestamp_records"], 1)
+        self.assertIn("按日志文件修改日期归档", result["message"])
+
     def test_incomplete_agent_usage_cost_is_not_counted_as_credits(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "events.jsonl"
@@ -304,6 +339,36 @@ class CopilotCreditsTests(unittest.TestCase):
             {"2026-10-12": {"GPT-6 Luna": 6.5}},
         )
         self.assertNotIn("copilot/auto", str(result["model_periods"]))
+
+    def test_html_report_shows_undated_credits_as_separate_model_entries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "events.jsonl"
+            source.write_text(
+                json.dumps(
+                    {
+                        "type": "session.usage_record",
+                        "data": {
+                            "usage": {
+                                "modelDisplayName": "Claude Haiku 4.5",
+                                "aiCreditsStatus": "complete",
+                                "copilotUsage": {"totalNanoAiu": 505_440_000_000},
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            result = copilot_credits.analyze_paths([source])
+            report = Path(directory) / "report.html"
+            copilot_credits.write_html_report(result, report)
+            html = report.read_text(encoding="utf-8")
+
+        self.assertEqual(
+            result["undated_by_model"],
+            {"Claude Haiku 4.5": 505.44},
+        )
+        self.assertIn("addModels(data.undated_by_model || {}, true);", html)
+        self.assertIn("unknownDate ? `${name}（日期未知）` : name", html)
 
     def test_current_usage_uses_generation_day_and_month(self):
         result = {
