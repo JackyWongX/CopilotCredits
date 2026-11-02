@@ -69,8 +69,8 @@
         .chart-tooltip-table { width: 100%; border-collapse: collapse; }
         .chart-tooltip-table th, .chart-tooltip-table td { padding: 4px 0; border-bottom: 1px solid var(--line); }
         .chart-tooltip-table tr:last-child th, .chart-tooltip-table tr:last-child td { border-bottom: 0; }
-        .chart-tooltip-table th { padding-right: 18px; color: var(--muted); font-weight: 500; text-align: left; white-space: nowrap; }
-        .chart-tooltip-table td { max-width: 210px; font-variant-numeric: tabular-nums; text-align: left; overflow-wrap: anywhere; }
+        .chart-tooltip-table th { padding-right: 22px; color: var(--muted); font-weight: 700; text-align: right; white-space: nowrap; }
+        .chart-tooltip-table td { max-width: 210px; padding-left: 6px; font-variant-numeric: tabular-nums; text-align: left; overflow-wrap: anywhere; }
         .model-chart { display: grid; gap: 16px; margin-top: 12px; }
         .model-chart-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 10px; align-items: center; gap: 6px 12px; }
         .model-chart-label { grid-column: 1; grid-row: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -82,6 +82,7 @@
         @media (max-width: 760px) {
             .shell { padding: 24px 17px 40px; }
             .toolbar { align-items: flex-start; flex-direction: column; }
+            .segmented { flex-wrap: wrap; }
             .content-grid { gap: 22px; }
             .filter { width: 100%; justify-content: space-between; }
             select { flex: 1; min-width: 0; }
@@ -101,6 +102,8 @@
                 <button type="button" data-period="daily" aria-pressed="true">每日</button>
                 <button type="button" data-period="weekly" aria-pressed="false">每周</button>
                 <button type="button" data-period="monthly" aria-pressed="false">每月</button>
+                <button type="button" data-range-days="7" aria-pressed="false">最近7日</button>
+                <button type="button" data-range-days="30" aria-pressed="false">最近30日</button>
             </div>
             <label class="filter" id="month-filter-label" hidden>月份
                 <select id="month-filter" aria-label="选择月份"></select>
@@ -136,17 +139,18 @@
         </div>
         <footer class="footer" id="footer"></footer>
     </main>
-    <script type="application/json" id="report-data">{"status":"credits_found","message":"已将完整用量记录中的 Nano AIU 汇总并按 10 亿:1 折算为 Credits。 另有 36 条未带时间戳的子代理 Credits，按日志文件修改日期归档。","files_scanned":416,"malformed_records":0,"credit_fields":["copilotCredits","credits","usage.copilotUsage.totalNanoAiu"],"credit_field_count":1254,"credit_records":1254,"file_timestamp_records":36,"undated_credits":0,"undated_records":0,"undated_by_model":{},"periods":{"daily":{"2026-09-28":0.794868,"2026-09-29":0.5780959999999999,"2026-10-08":1.8692734999999998,"2026-10-10":2.748202,"2026-10-12":2.372666,"2026-10-13":0.731675,"2026-10-15":54.962704,"2026-10-16":31.1287735,"2026-10-19":18.946262,"2026-10-20":0.610298,"2026-10-22":12.58052985,"2026-10-23":113.6336933,"2026-10-26":60.5512215,"2026-10-27":129.303085,"2026-10-28":710.512916,"2026-10-29":11.6119505},"weekly":{"2026-W40":1.3729639999999999,"2026-W41":4.6174755,"2026-W42":89.1958185,"2026-W43":145.77078315,"2026-W44":911.979173},"monthly":{"2026-09":1.3729639999999999,"2026-10":1151.56325015}},"session_periods":{"daily":{"2026-08-17":1,"2026-08-19":1,"2026-08-20":1,"2026-08-26":1,"2026-08-31":1,"2026-09-03":2,"2026-09-22":2,"2026-09-23":2,"2026-09-24":4,"2026-09-28":4,"2026-09-29":2,"2026-10-08":4,"2026-10-09":3,"2026-10-10":4,"2026-10-12":8,"2026-10-13":3,"2026-10-15":10,"2026-10-16":18,"2026-10-19":3,"2026-10-20":1,"2026-10-22":5,"2026-10-23":19,"2026-10-26":13,"2026-10-27":12,"2026-10-28":41,"2026-10-29":4},"weekly":{"2026-W34":3,"2026-W35":1,"2026-W36":3,"2026-W39":8,"2026-W40":6,"2026-W41":11,"2026-W42":39,"2026-W43":28,"2026-W44":70},"monthly":{"2026-08":5,"2026-09":16,"2026-10":148}},"unpriced_usage_periods":{"daily":{},"weekly":{},"monthly":{}},"undated_unpriced_usage_records":0,"model_periods":{"daily":{"2026-09-28":{"GPT-6 Luna":0.794868},"2026-09-29":{"GPT-6 Luna":0.5780959999999999},"2026-10-08":{"GPT-6 Luna":1.8692734999999998},"2026-10-10":{"GPT-6 Luna":2.748202},"2026-10-12":{"GPT-6 Luna":2.372666},"2026-10-13":{"GPT-6 Luna":0.731675},"2026-10-15":{"GPT-6 Luna":54.962704},"2026-10-16":{"GPT-6 Luna":31.1287735},"2026-10-19":{"GPT-6 Luna":18.946262},"2026-10-20":{"GPT-6 Luna":0.610298},"2026-10-22":{"GPT-6 Luna":12.58052985},"2026-10-23":{"GPT-5.6 Terra":57.172286,"GPT-6 Luna":20.7920073,"Grok 4.7":35.6694},"2026-10-26":{"GPT-6 Luna":60.5512215},"2026-10-27":{"GPT-5.6 Terra":98.43789,"GPT-6 Luna":30.865195},"2026-10-28":{"Claude Haiku 4.5":588.5785999999999,"GPT-6 Luna":30.118191500000002,"GPT-6.1 Terra":19.2901725,"copilot/gpt-6-luna":21.491877,"copilot/gpt-6.1-terra":51.034074999999994},"2026-10-29":{"GPT-6 Luna":10.6270295,"copilot/gpt-6-luna":0.9849209999999999}},"weekly":{"2026-W40":{"GPT-6 Luna":1.3729639999999999},"2026-W41":{"GPT-6 Luna":4.6174755},"2026-W42":{"GPT-6 Luna":89.1958185},"2026-W43":{"GPT-5.6 Terra":57.172286,"GPT-6 Luna":52.92909715,"Grok 4.7":35.6694},"2026-W44":{"Claude Haiku 4.5":588.5785999999999,"GPT-5.6 Terra":98.43789,"GPT-6 Luna":132.1616375,"GPT-6.1 Terra":19.2901725,"copilot/gpt-6-luna":22.476798,"copilot/gpt-6.1-terra":51.034074999999994}},"monthly":{"2026-09":{"GPT-6 Luna":1.3729639999999999},"2026-10":{"Claude Haiku 4.5":588.5785999999999,"GPT-5.6 Terra":155.610176,"GPT-6 Luna":278.90402865,"GPT-6.1 Terra":19.2901725,"Grok 4.7":35.6694,"copilot/gpt-6-luna":22.476798,"copilot/gpt-6.1-terra":51.034074999999994}}},"cache_hits":0,"files_reparsed":416,"generated_at":"2026-10-29T10:59:15.865339+08:00","current_usage":{"today":{"label":"2026-10-29","value":11.6119505,"unpriced_records":0},"month":{"label":"2026-10","value":1151.56325015,"unpriced_records":0}}}</script>
+    <script type="application/json" id="report-data">{"status":"credits_found","message":"已将完整用量记录中的 Nano AIU 汇总并按 10 亿:1 折算为 Credits。 另有 36 条未带时间戳的子代理 Credits，按日志文件修改日期归档。","files_scanned":445,"malformed_records":0,"credit_fields":["copilotCredits","credits","usage.copilotUsage.totalNanoAiu"],"credit_field_count":1839,"credit_records":1839,"file_timestamp_records":36,"undated_credits":0,"undated_records":0,"undated_by_model":{},"periods":{"daily":{"2026-09-28":0.794868,"2026-09-29":0.5780959999999999,"2026-10-08":1.8692734999999998,"2026-10-10":2.748202,"2026-10-12":2.372666,"2026-10-13":0.731675,"2026-10-15":54.962704,"2026-10-16":31.1287735,"2026-10-19":18.946262,"2026-10-20":0.610298,"2026-10-22":12.58052985,"2026-10-23":113.6336933,"2026-10-26":60.5512215,"2026-10-27":129.303085,"2026-10-28":710.512916,"2026-10-29":56.5498585,"2026-10-30":54.059229,"2026-11-02":19.108816},"weekly":{"2026-W40":1.3729639999999999,"2026-W41":4.6174755,"2026-W42":89.1958185,"2026-W43":145.77078315,"2026-W44":1010.97631,"2026-W45":19.108816},"monthly":{"2026-09":1.3729639999999999,"2026-10":1250.56038715,"2026-11":19.108816}},"session_periods":{"daily":{"2026-08-17":1,"2026-08-19":1,"2026-08-20":1,"2026-08-26":1,"2026-08-31":1,"2026-09-03":2,"2026-09-22":2,"2026-09-23":2,"2026-09-24":4,"2026-09-28":4,"2026-09-29":2,"2026-10-08":4,"2026-10-09":3,"2026-10-10":4,"2026-10-12":8,"2026-10-13":3,"2026-10-15":10,"2026-10-16":18,"2026-10-19":3,"2026-10-20":1,"2026-10-22":5,"2026-10-23":19,"2026-10-26":13,"2026-10-27":12,"2026-10-28":41,"2026-10-29":16,"2026-10-30":8,"2026-11-02":9},"weekly":{"2026-W34":3,"2026-W35":1,"2026-W36":3,"2026-W39":8,"2026-W40":6,"2026-W41":11,"2026-W42":39,"2026-W43":28,"2026-W44":90,"2026-W45":9},"monthly":{"2026-08":5,"2026-09":16,"2026-10":168,"2026-11":9}},"unpriced_usage_periods":{"daily":{},"weekly":{},"monthly":{}},"undated_unpriced_usage_records":0,"model_periods":{"daily":{"2026-09-28":{"GPT-6 Luna":0.794868},"2026-09-29":{"GPT-6 Luna":0.5780959999999999},"2026-10-08":{"GPT-6 Luna":1.8692734999999998},"2026-10-10":{"GPT-6 Luna":2.748202},"2026-10-12":{"GPT-6 Luna":2.372666},"2026-10-13":{"GPT-6 Luna":0.731675},"2026-10-15":{"GPT-6 Luna":54.962704},"2026-10-16":{"GPT-6 Luna":31.1287735},"2026-10-19":{"GPT-6 Luna":18.946262},"2026-10-20":{"GPT-6 Luna":0.610298},"2026-10-22":{"GPT-6 Luna":12.58052985},"2026-10-23":{"GPT-5.6 Terra":57.172286,"GPT-6 Luna":20.7920073,"Grok 4.7":35.6694},"2026-10-26":{"GPT-6 Luna":60.5512215},"2026-10-27":{"GPT-5.6 Terra":98.43789,"GPT-6 Luna":30.865195},"2026-10-28":{"Claude Haiku 4.5":588.5785999999999,"GPT-6 Luna":30.118191500000002,"GPT-6.1 Terra":19.2901725,"copilot/gpt-6-luna":21.491877,"copilot/gpt-6.1-terra":51.034074999999994},"2026-10-29":{"GPT-6 Luna":55.5649375,"copilot/gpt-6-luna":0.9849209999999999},"2026-10-30":{"GPT-6 Luna":54.059229},"2026-11-02":{"GPT-6 Luna":19.108816}},"weekly":{"2026-W40":{"GPT-6 Luna":1.3729639999999999},"2026-W41":{"GPT-6 Luna":4.6174755},"2026-W42":{"GPT-6 Luna":89.1958185},"2026-W43":{"GPT-5.6 Terra":57.172286,"GPT-6 Luna":52.92909715,"Grok 4.7":35.6694},"2026-W44":{"Claude Haiku 4.5":588.5785999999999,"GPT-5.6 Terra":98.43789,"GPT-6 Luna":231.1587745,"GPT-6.1 Terra":19.2901725,"copilot/gpt-6-luna":22.476798,"copilot/gpt-6.1-terra":51.034074999999994},"2026-W45":{"GPT-6 Luna":19.108816}},"monthly":{"2026-09":{"GPT-6 Luna":1.3729639999999999},"2026-10":{"Claude Haiku 4.5":588.5785999999999,"GPT-5.6 Terra":155.610176,"GPT-6 Luna":377.90116565,"GPT-6.1 Terra":19.2901725,"Grok 4.7":35.6694,"copilot/gpt-6-luna":22.476798,"copilot/gpt-6.1-terra":51.034074999999994},"2026-11":{"GPT-6 Luna":19.108816}}},"cache_hits":444,"files_reparsed":1,"generated_at":"2026-11-02T15:39:14.546503+08:00","current_usage":{"today":{"label":"2026-11-02","value":19.108816,"unpriced_records":0},"month":{"label":"2026-11","value":19.108816,"unpriced_records":0}}}</script>
     <script>
         const data = JSON.parse(document.getElementById("report-data").textContent);
         const labels = { daily: "每日", weekly: "每周", monthly: "每月" };
         const colors = ["#ff3d8e", "#e47758", "#568ba3", "#b69a3b", "#6d8e64", "#c06b7b"];
         const chartColors = { credits: "#ff3d8e", sessions: "#a855f7" };
-        const state = { period: "daily", model: "*", bucket: null, month: "" };
+        const state = { period: "daily", rangeDays: 0, model: "*", bucket: null, month: "" };
         const byId = (id) => document.getElementById(id);
         const number = (value) => new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 6 }).format(value || 0);
         const creditsNumber = (value) => new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
         const sum = (values) => Object.values(values || {}).reduce((total, value) => total + value, 0);
+        const activePeriodLabel = () => state.rangeDays ? `最近${state.rangeDays}日` : labels[state.period];
         const allBucketNames = () => [...new Set([
             ...Object.keys(data.periods[state.period] || {}),
             ...Object.keys(data.session_periods?.[state.period] || {})
@@ -157,9 +161,15 @@
         ].map((bucket) => bucket.slice(0, 7)))].sort();
         const bucketNames = () => {
             const buckets = allBucketNames();
-            return state.period === "daily" && state.month
-                ? buckets.filter((bucket) => bucket.startsWith(`${state.month}-`))
-                : buckets;
+            if (state.period !== "daily") return buckets;
+            if (state.rangeDays) {
+                const endDate = data.current_usage.today.label;
+                const startDate = new Date(`${endDate}T00:00:00Z`);
+                startDate.setUTCDate(startDate.getUTCDate() - state.rangeDays + 1);
+                const start = startDate.toISOString().slice(0, 10);
+                return buckets.filter((bucket) => bucket >= start && bucket <= endDate);
+            }
+            return state.month ? buckets.filter((bucket) => bucket.startsWith(`${state.month}-`)) : buckets;
         };
         const modelNames = () => {
             const names = new Set(Object.keys(data.undated_by_model || {}));
@@ -200,7 +210,7 @@
             }
             select.value = state.month;
             select.disabled = months.length === 0;
-            byId("month-filter-label").hidden = state.period !== "daily";
+            byId("month-filter-label").hidden = state.period !== "daily" || state.rangeDays > 0;
         }
         function modelBreakdown() {
             const result = [];
@@ -265,7 +275,10 @@
             const empty = byId("period-empty");
             chart.replaceChildren();
             empty.hidden = buckets.length > 0;
-            const width = Math.max(640, buckets.length * 88 + 100, chart.parentElement.clientWidth);
+            const fitDailyChart = state.period === "daily" && buckets.length <= 31 && (Boolean(state.month) || state.rangeDays > 0);
+            const width = fitDailyChart
+                ? chart.parentElement.clientWidth
+                : Math.max(640, buckets.length * 88 + 100, chart.parentElement.clientWidth);
             const height = 340;
             const margin = { top: 20, right: 58, bottom: 52, left: 62 };
             const plotWidth = width - margin.left - margin.right;
@@ -282,7 +295,7 @@
             chart.setAttribute("width", width);
             chart.setAttribute("height", height);
             chart.style.width = `${width}px`;
-            chart.setAttribute("aria-label", `${labels[state.period]} Credits 与会话数，X 轴日期共用，Credits 向上，会话数向下，分别独立刻度`);
+            chart.setAttribute("aria-label", `${activePeriodLabel()} Credits 与会话数，X 轴日期共用，Credits 向上，会话数向下，分别独立刻度`);
             for (let tick = 0; tick <= 2; tick += 1) {
                 const creditY = margin.top + creditPlotHeight * tick / 2;
                 const sessionY = baselineY + sessionPlotHeight * tick / 2;
@@ -346,7 +359,8 @@
                 sessionLabel.textContent = number(sessionValue);
                 group.append(creditLabel, sessionLabel);
                 const periodLabel = svgElement("text", { x: center, y: height - 18, "text-anchor": "middle", class: "chart-period" });
-                periodLabel.textContent = bucket;
+                periodLabel.textContent = state.period === "daily" ? bucket.slice(5) : bucket;
+                periodLabel.style.display = index % Math.max(1, Math.ceil(34 / step)) === 0 ? "" : "none";
                 group.append(periodLabel);
                 const activate = () => { state.bucket = state.bucket === bucket ? null : bucket; render(); };
                 group.addEventListener("click", activate);
@@ -399,7 +413,7 @@
                 ? `有 ${number(current.month.unpriced_records)} 条用量记录未提供可确认的 Credits 数值。`
                 : "";
             byId("total-value").textContent = creditsNumber(total);
-            byId("total-label").textContent = state.model === "*" ? `${labels[state.period]}区间用量` : "筛选模型用量";
+            byId("total-label").textContent = state.model === "*" ? `${activePeriodLabel()}区间用量` : "筛选模型用量";
             byId("session-count").textContent = number(sessionTotal);
             byId("peak-value").textContent = peak?.value ? peak.bucket : "-";
             byId("peak-note").textContent = peak?.value ? `${creditsNumber(peak.value)} Credits` : "Credits";
@@ -411,6 +425,9 @@
             for (const button of document.querySelectorAll("[data-period]")) {
                 button.setAttribute("aria-pressed", String(button.dataset.period === state.period));
             }
+            for (const button of document.querySelectorAll("[data-range-days]")) {
+                button.setAttribute("aria-pressed", String(Number(button.dataset.rangeDays) === state.rangeDays));
+            }
             populateMonthFilter();
             populateModelFilter();
             renderMetrics();
@@ -418,7 +435,10 @@
             renderModelChart();
         }
         document.querySelectorAll("[data-period]").forEach((button) => button.addEventListener("click", () => {
-            state.period = button.dataset.period; state.bucket = null; render();
+            state.period = button.dataset.period; state.rangeDays = 0; state.bucket = null; render();
+        }));
+        document.querySelectorAll("[data-range-days]").forEach((button) => button.addEventListener("click", () => {
+            state.period = "daily"; state.rangeDays = Number(button.dataset.rangeDays); state.bucket = null; render();
         }));
         byId("month-filter").addEventListener("change", (event) => { state.month = event.target.value; state.bucket = null; render(); });
         byId("model-filter").addEventListener("change", (event) => { state.model = event.target.value; render(); });

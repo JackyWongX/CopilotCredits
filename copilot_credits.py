@@ -848,8 +848,8 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
         .chart-tooltip-table { width: 100%; border-collapse: collapse; }
         .chart-tooltip-table th, .chart-tooltip-table td { padding: 4px 0; border-bottom: 1px solid var(--line); }
         .chart-tooltip-table tr:last-child th, .chart-tooltip-table tr:last-child td { border-bottom: 0; }
-        .chart-tooltip-table th { padding-right: 18px; color: var(--muted); font-weight: 500; text-align: left; white-space: nowrap; }
-        .chart-tooltip-table td { max-width: 210px; font-variant-numeric: tabular-nums; text-align: left; overflow-wrap: anywhere; }
+        .chart-tooltip-table th { padding-right: 22px; color: var(--muted); font-weight: 700; text-align: right; white-space: nowrap; }
+        .chart-tooltip-table td { max-width: 210px; padding-left: 6px; font-variant-numeric: tabular-nums; text-align: left; overflow-wrap: anywhere; }
         .model-chart { display: grid; gap: 16px; margin-top: 12px; }
         .model-chart-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 10px; align-items: center; gap: 6px 12px; }
         .model-chart-label { grid-column: 1; grid-row: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -861,6 +861,7 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
         @media (max-width: 760px) {
             .shell { padding: 24px 17px 40px; }
             .toolbar { align-items: flex-start; flex-direction: column; }
+            .segmented { flex-wrap: wrap; }
             .content-grid { gap: 22px; }
             .filter { width: 100%; justify-content: space-between; }
             select { flex: 1; min-width: 0; }
@@ -880,6 +881,8 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
                 <button type="button" data-period="daily" aria-pressed="true">每日</button>
                 <button type="button" data-period="weekly" aria-pressed="false">每周</button>
                 <button type="button" data-period="monthly" aria-pressed="false">每月</button>
+                <button type="button" data-range-days="7" aria-pressed="false">最近7日</button>
+                <button type="button" data-range-days="30" aria-pressed="false">最近30日</button>
             </div>
             <label class="filter" id="month-filter-label" hidden>月份
                 <select id="month-filter" aria-label="选择月份"></select>
@@ -921,11 +924,12 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
         const labels = { daily: "每日", weekly: "每周", monthly: "每月" };
         const colors = ["#ff3d8e", "#e47758", "#568ba3", "#b69a3b", "#6d8e64", "#c06b7b"];
         const chartColors = { credits: "#ff3d8e", sessions: "#a855f7" };
-        const state = { period: "daily", model: "*", bucket: null, month: "" };
+        const state = { period: "daily", rangeDays: 0, model: "*", bucket: null, month: "" };
         const byId = (id) => document.getElementById(id);
         const number = (value) => new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 6 }).format(value || 0);
         const creditsNumber = (value) => new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
         const sum = (values) => Object.values(values || {}).reduce((total, value) => total + value, 0);
+        const activePeriodLabel = () => state.rangeDays ? `最近${state.rangeDays}日` : labels[state.period];
         const allBucketNames = () => [...new Set([
             ...Object.keys(data.periods[state.period] || {}),
             ...Object.keys(data.session_periods?.[state.period] || {})
@@ -936,9 +940,15 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
         ].map((bucket) => bucket.slice(0, 7)))].sort();
         const bucketNames = () => {
             const buckets = allBucketNames();
-            return state.period === "daily" && state.month
-                ? buckets.filter((bucket) => bucket.startsWith(`${state.month}-`))
-                : buckets;
+            if (state.period !== "daily") return buckets;
+            if (state.rangeDays) {
+                const endDate = data.current_usage.today.label;
+                const startDate = new Date(`${endDate}T00:00:00Z`);
+                startDate.setUTCDate(startDate.getUTCDate() - state.rangeDays + 1);
+                const start = startDate.toISOString().slice(0, 10);
+                return buckets.filter((bucket) => bucket >= start && bucket <= endDate);
+            }
+            return state.month ? buckets.filter((bucket) => bucket.startsWith(`${state.month}-`)) : buckets;
         };
         const modelNames = () => {
             const names = new Set(Object.keys(data.undated_by_model || {}));
@@ -979,7 +989,7 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
             }
             select.value = state.month;
             select.disabled = months.length === 0;
-            byId("month-filter-label").hidden = state.period !== "daily";
+            byId("month-filter-label").hidden = state.period !== "daily" || state.rangeDays > 0;
         }
         function modelBreakdown() {
             const result = [];
@@ -1044,7 +1054,10 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
             const empty = byId("period-empty");
             chart.replaceChildren();
             empty.hidden = buckets.length > 0;
-            const width = Math.max(640, buckets.length * 88 + 100, chart.parentElement.clientWidth);
+            const fitDailyChart = state.period === "daily" && buckets.length <= 31 && (Boolean(state.month) || state.rangeDays > 0);
+            const width = fitDailyChart
+                ? chart.parentElement.clientWidth
+                : Math.max(640, buckets.length * 88 + 100, chart.parentElement.clientWidth);
             const height = 340;
             const margin = { top: 20, right: 58, bottom: 52, left: 62 };
             const plotWidth = width - margin.left - margin.right;
@@ -1061,7 +1074,7 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
             chart.setAttribute("width", width);
             chart.setAttribute("height", height);
             chart.style.width = `${width}px`;
-            chart.setAttribute("aria-label", `${labels[state.period]} Credits 与会话数，X 轴日期共用，Credits 向上，会话数向下，分别独立刻度`);
+            chart.setAttribute("aria-label", `${activePeriodLabel()} Credits 与会话数，X 轴日期共用，Credits 向上，会话数向下，分别独立刻度`);
             for (let tick = 0; tick <= 2; tick += 1) {
                 const creditY = margin.top + creditPlotHeight * tick / 2;
                 const sessionY = baselineY + sessionPlotHeight * tick / 2;
@@ -1125,7 +1138,8 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
                 sessionLabel.textContent = number(sessionValue);
                 group.append(creditLabel, sessionLabel);
                 const periodLabel = svgElement("text", { x: center, y: height - 18, "text-anchor": "middle", class: "chart-period" });
-                periodLabel.textContent = bucket;
+                periodLabel.textContent = state.period === "daily" ? bucket.slice(5) : bucket;
+                periodLabel.style.display = index % Math.max(1, Math.ceil(34 / step)) === 0 ? "" : "none";
                 group.append(periodLabel);
                 const activate = () => { state.bucket = state.bucket === bucket ? null : bucket; render(); };
                 group.addEventListener("click", activate);
@@ -1178,7 +1192,7 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
                 ? `有 ${number(current.month.unpriced_records)} 条用量记录未提供可确认的 Credits 数值。`
                 : "";
             byId("total-value").textContent = creditsNumber(total);
-            byId("total-label").textContent = state.model === "*" ? `${labels[state.period]}区间用量` : "筛选模型用量";
+            byId("total-label").textContent = state.model === "*" ? `${activePeriodLabel()}区间用量` : "筛选模型用量";
             byId("session-count").textContent = number(sessionTotal);
             byId("peak-value").textContent = peak?.value ? peak.bucket : "-";
             byId("peak-note").textContent = peak?.value ? `${creditsNumber(peak.value)} Credits` : "Credits";
@@ -1190,6 +1204,9 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
             for (const button of document.querySelectorAll("[data-period]")) {
                 button.setAttribute("aria-pressed", String(button.dataset.period === state.period));
             }
+            for (const button of document.querySelectorAll("[data-range-days]")) {
+                button.setAttribute("aria-pressed", String(Number(button.dataset.rangeDays) === state.rangeDays));
+            }
             populateMonthFilter();
             populateModelFilter();
             renderMetrics();
@@ -1197,7 +1214,10 @@ def write_html_report(result: dict[str, Any], output_path: Path) -> Path:
             renderModelChart();
         }
         document.querySelectorAll("[data-period]").forEach((button) => button.addEventListener("click", () => {
-            state.period = button.dataset.period; state.bucket = null; render();
+            state.period = button.dataset.period; state.rangeDays = 0; state.bucket = null; render();
+        }));
+        document.querySelectorAll("[data-range-days]").forEach((button) => button.addEventListener("click", () => {
+            state.period = "daily"; state.rangeDays = Number(button.dataset.rangeDays); state.bucket = null; render();
         }));
         byId("month-filter").addEventListener("change", (event) => { state.month = event.target.value; state.bucket = null; render(); });
         byId("model-filter").addEventListener("change", (event) => { state.model = event.target.value; render(); });
